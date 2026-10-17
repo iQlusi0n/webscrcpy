@@ -1,7 +1,7 @@
 import { api, errorMessage } from "../api.ts";
 import { ConfirmModal } from "./confirm.ts";
-import { currentTheme, type AppContext } from "./context.ts";
-import { Modal, button } from "./modal.ts";
+import { type AppContext, currentTheme } from "./context.ts";
+import { button, Modal } from "./modal.ts";
 
 function sectionTitle(text: string): HTMLHeadingElement {
   const h = document.createElement("h3");
@@ -78,7 +78,14 @@ export class SettingsModal extends Modal {
     const out: HTMLElement[] = [];
     if (auth.fromEnv) {
       out.push(note("password is set by AUTH_PASSWORD; change it there"));
-      if (auth.mode === "password") out.push(row("Log out", "ends every session", button("Log out", "default", () => void this.logout())));
+      if (auth.mode === "password")
+        out.push(
+          row(
+            "Log out",
+            "ends every session",
+            button("Log out", "default", () => void this.logout()),
+          ),
+        );
       return out;
     }
     if (auth.mode === "off") {
@@ -92,8 +99,20 @@ export class SettingsModal extends Modal {
       return out;
     }
     out.push(this.passwordForm("Change password", "current-password"));
-    out.push(row("Remove password", "anyone who can reach this port will control devices", button("Remove", "danger", () => void this.removePassword())));
-    out.push(row("Log out", "ends every session", button("Log out", "default", () => void this.logout())));
+    out.push(
+      row(
+        "Remove password",
+        "anyone who can reach this port will control devices",
+        button("Remove", "danger", () => void this.removePassword()),
+      ),
+    );
+    out.push(
+      row(
+        "Log out",
+        "ends every session",
+        button("Log out", "default", () => void this.logout()),
+      ),
+    );
     return out;
   }
 
@@ -129,7 +148,9 @@ export class SettingsModal extends Modal {
       submit.disabled = true;
       void (async () => {
         try {
-          const body = currentInput ? { currentPassword: currentInput.value, newPassword: next.value } : { newPassword: next.value };
+          const body = currentInput
+            ? { currentPassword: currentInput.value, newPassword: next.value }
+            : { newPassword: next.value };
           await api.auth.setPassword(body);
           await this.ctx.refreshConfig();
           status.textContent = "saved";
@@ -153,7 +174,12 @@ export class SettingsModal extends Modal {
 
   private async removePassword(): Promise<void> {
     const ok = await this.askChild(
-      () => ConfirmModal.confirm("Remove password?", "Anyone who can reach this port will be able to control connected devices.", { ok: "Remove", danger: true }),
+      () =>
+        ConfirmModal.confirm(
+          "Remove password?",
+          "Anyone who can reach this port will be able to control connected devices.",
+          { ok: "Remove", danger: true },
+        ),
       false,
     );
     if (!ok) return;
@@ -190,7 +216,10 @@ export class SettingsModal extends Modal {
       readOnly("Port", `${config.port}  (set via PORT / config.json; restart to apply)`),
       readOnly("adb", adb),
       readOnly("scrcpy-server", `${config.scrcpyVersion} (bundled)`),
-      readOnly("Data root", config.docker ? "/data (container volume)" : "$DATA_ROOT → $XDG_DATA_HOME/webscrcpy → ~/.local/share/webscrcpy"),
+      readOnly(
+        "Data root",
+        config.docker ? "/data (container volume)" : "$DATA_ROOT → $XDG_DATA_HOME/webscrcpy → ~/.local/share/webscrcpy",
+      ),
       readOnly("Version", config.version),
     ];
   }
@@ -208,12 +237,20 @@ export class SettingsModal extends Modal {
       void this.ctx.setTheme(theme.value === "light" ? "light" : "dark");
     });
     const reset = button("Reset", "danger", () => void this.resetSettings());
-    return [row("Theme", null, theme), row("Reset my settings", "theme, device labels and per-device stream settings", reset)];
+    return [
+      row("Theme", null, theme),
+      row("Reset my settings", "theme, device labels and per-device stream settings", reset),
+    ];
   }
 
   private async resetSettings(): Promise<void> {
     const ok = await this.askChild(
-      () => ConfirmModal.confirm("Reset settings?", "Theme, device labels and per-device stream settings return to their defaults.", { ok: "Reset", danger: true }),
+      () =>
+        ConfirmModal.confirm(
+          "Reset settings?",
+          "Theme, device labels and per-device stream settings return to their defaults.",
+          { ok: "Reset", danger: true },
+        ),
       false,
     );
     if (!ok) return;
@@ -250,7 +287,11 @@ class PromptModal extends Modal {
     this.body.appendChild(form);
     const spacer = document.createElement("span");
     spacer.className = "spacer";
-    this.footer.append(spacer, button("Cancel", "default", () => this.close()), button("OK", "primary", () => this.answer(this.input.value)));
+    this.footer.append(
+      spacer,
+      button("Cancel", "default", () => this.close()),
+      button("OK", "primary", () => this.answer(this.input.value)),
+    );
   }
 
   static prompt(title: string, type: string): Promise<string | null> {

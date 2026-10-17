@@ -2,8 +2,7 @@
  * `/ws/files?serial=…` — file browser over ADB `sync:` (list/stat/pull/push). One AdbSync per
  * socket; one in-flight operation per request id. Wire shapes: protocol.ts FilesRequest/Response.
  */
-import type { AdbSync, AdbSyncStat } from "@yume-chan/adb";
-import { TransformStream as TangoTransformStream, type WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
+
 import {
   FILES_BINARY_PREFIX,
   FILES_CHUNK_SIZE,
@@ -13,8 +12,17 @@ import {
   type FilesResponse,
 } from "@common/protocol.ts";
 import { isDevicePath, isSerial } from "@common/validate.ts";
-import { HttpError, type AppRouter, type AppServices, type AppSocket, type Logger, type RequestContext } from "../app.ts";
-import { describe, type AdbService } from "./service.ts";
+import type { AdbSync, AdbSyncStat } from "@yume-chan/adb";
+import { TransformStream as TangoTransformStream, type WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
+import {
+  type AppRouter,
+  type AppServices,
+  type AppSocket,
+  HttpError,
+  type Logger,
+  type RequestContext,
+} from "../app.ts";
+import { type AdbService, describe } from "./service.ts";
 import { DrainWaiter } from "./ws.ts";
 
 const PULL_BACKPRESSURE_BYTES = 1024 * 1024;
@@ -161,7 +169,13 @@ function handlePush(ws: AppSocket, state: FilesState, sync: AdbSync, id: number,
   send(ws, { id, type: "ready" });
 }
 
-async function dispatch(ws: AppSocket, state: FilesState, service: AdbService, request: FilesRequest | FilesPushEnd, log: Logger): Promise<void> {
+async function dispatch(
+  ws: AppSocket,
+  state: FilesState,
+  service: AdbService,
+  request: FilesRequest | FilesPushEnd,
+  log: Logger,
+): Promise<void> {
   const { id } = request;
   const existing = state.ops.get(id);
   if (request.op === "cancel") {
@@ -230,7 +244,11 @@ export function registerFiles(router: AppRouter, service: AdbService, services: 
         const id = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true);
         const op = state.ops.get(id);
         if (op?.kind !== "push") return;
-        const chunk = new Uint8Array(data.buffer, data.byteOffset + FILES_BINARY_PREFIX, data.byteLength - FILES_BINARY_PREFIX);
+        const chunk = new Uint8Array(
+          data.buffer,
+          data.byteOffset + FILES_BINARY_PREFIX,
+          data.byteLength - FILES_BINARY_PREFIX,
+        );
         op.received += chunk.byteLength;
         op.writer.write(chunk.slice()).catch(() => undefined);
         if (op.received - op.lastProgress >= PUSH_PROGRESS_BYTES) {

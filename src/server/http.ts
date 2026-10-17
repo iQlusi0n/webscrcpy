@@ -3,13 +3,14 @@
  * `:param` route matching, JSON error envelopes, WS upgrade with a live-socket registry so
  * logout / user-disable can close sockets with 4401.
  */
-import type { Server, WebSocketHandler } from "bun";
+
 import { WsClose } from "@common/protocol.ts";
+import type { Server, WebSocketHandler } from "bun";
 import {
-  HttpError,
   type AppRouter,
   type AppSocket,
   type Gate,
+  HttpError,
   type Logger,
   type RequestContext,
   type RouteHandler,
@@ -66,7 +67,10 @@ export class SocketRegistry {
     const { sessionKey } = ws.data;
     if (sessionKey === undefined) return;
     let set = this.bySession.get(sessionKey);
-    if (!set) this.bySession.set(sessionKey, (set = new Set()));
+    if (!set) {
+      set = new Set();
+      this.bySession.set(sessionKey, set);
+    }
     set.add(ws);
   }
 
@@ -126,7 +130,14 @@ export class Router implements AppRouter {
     return null;
   }
 
-  private buildContext(req: Request, url: URL, params: Record<string, string>, principal: Principal, isLoopback: boolean, secure: boolean): CoreContext {
+  private buildContext(
+    req: Request,
+    url: URL,
+    params: Record<string, string>,
+    principal: Principal,
+    isLoopback: boolean,
+    secure: boolean,
+  ): CoreContext {
     return {
       req,
       url,
@@ -190,7 +201,13 @@ export class Router implements AppRouter {
     return jsonResponse({ error: "internal error" }, 500);
   }
 
-  private async handleHttp(req: Request, url: URL, method: string, isLoopback: boolean, secure: boolean): Promise<Response> {
+  private async handleHttp(
+    req: Request,
+    url: URL,
+    method: string,
+    isLoopback: boolean,
+    secure: boolean,
+  ): Promise<Response> {
     const matched = this.match(method, url.pathname);
     if (matched) {
       const principal = this.deps.auth.resolve(req);
@@ -203,7 +220,13 @@ export class Router implements AppRouter {
     return file ?? jsonResponse({ error: "not found" }, 404);
   }
 
-  private async handleUpgrade(req: Request, url: URL, server: Server<WsData>, isLoopback: boolean, secure: boolean): Promise<Response | undefined> {
+  private async handleUpgrade(
+    req: Request,
+    url: URL,
+    server: Server<WsData>,
+    isLoopback: boolean,
+    secure: boolean,
+  ): Promise<Response | undefined> {
     const wsRoute = this.wsRoutes.get(url.pathname);
     if (!wsRoute) return jsonResponse({ error: "not found" }, 404);
     const decision = this.deps.security.evaluateUpgrade(req.headers);
@@ -222,7 +245,7 @@ export class Router implements AppRouter {
   }
 
   private handlersFor(ws: AppSocket): WsHandlers | undefined {
-    return this.wsRoutes.get("/ws/" + ws.data.kind)?.handlers;
+    return this.wsRoutes.get(`/ws/${ws.data.kind}`)?.handlers;
   }
 
   readonly websocket: WebSocketHandler<WsData> = {
@@ -244,7 +267,9 @@ export class Router implements AppRouter {
       this.sockets.remove(ws);
       const h = this.handlersFor(ws);
       if (!h) return;
-      void Promise.resolve(h.close(ws, code, reason)).catch((err) => this.deps.log.error(`ws ${ws.data.kind} close handler failed`, err));
+      void Promise.resolve(h.close(ws, code, reason)).catch((err) =>
+        this.deps.log.error(`ws ${ws.data.kind} close handler failed`, err),
+      );
     },
     drain: (ws) => {
       this.handlersFor(ws)?.drain?.(ws);
@@ -253,7 +278,8 @@ export class Router implements AppRouter {
 
   private wsFailure(ws: AppSocket, phase: string, err: unknown): void {
     this.deps.log.error(`ws ${ws.data.kind} ${phase} handler failed`, err);
-    if (ws.readyState === WebSocket.OPEN) ws.close(WsClose.SESSION_FAILED, err instanceof Error ? err.message.slice(0, 120) : "internal error");
+    if (ws.readyState === WebSocket.OPEN)
+      ws.close(WsClose.SESSION_FAILED, err instanceof Error ? err.message.slice(0, 120) : "internal error");
   }
 
   listen(port: number, hostname = "0.0.0.0"): Server<WsData> {

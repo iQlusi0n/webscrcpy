@@ -137,7 +137,12 @@ export class AudioPlayer {
     }
     if (packet.isConfig) {
       if (this.codec === "aac") {
-        this.configure({ codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: CHANNELS, description: packet.data });
+        this.configure({
+          codec: "mp4a.40.2",
+          sampleRate: SAMPLE_RATE,
+          numberOfChannels: CHANNELS,
+          description: packet.data,
+        });
       } else if (this.codec === "flac") {
         this.configure({
           codec: "flac",

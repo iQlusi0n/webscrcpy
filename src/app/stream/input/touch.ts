@@ -33,7 +33,12 @@ export interface ElementRect {
  * Map a client-space point to device pixels, honouring letterboxing when the element's aspect
  * ratio differs from the video's. Returns null outside the picture.
  */
-export function mapToDevice(clientX: number, clientY: number, rect: ElementRect, screen: ScreenInfo): DevicePoint | null {
+export function mapToDevice(
+  clientX: number,
+  clientY: number,
+  rect: ElementRect,
+  screen: ScreenInfo,
+): DevicePoint | null {
   if (screen.width <= 0 || screen.height <= 0 || rect.width <= 0 || rect.height <= 0) return null;
   const scale = Math.min(rect.width / screen.width, rect.height / screen.height);
   const drawW = screen.width * scale;
@@ -188,7 +193,14 @@ export class TouchInput {
     if (stale) this.finish(e.pointerId, stale, MotionAction.UP);
     const id = BigInt(this.nextTouchId++ % 10);
     this.active.set(e.pointerId, { id, last: point, mirror: null });
-    this.touch(this.active.size === 1 ? MotionAction.DOWN : MotionAction.POINTER_DOWN, id, point, e.pressure || 1, 0, 0);
+    this.touch(
+      this.active.size === 1 ? MotionAction.DOWN : MotionAction.POINTER_DOWN,
+      id,
+      point,
+      e.pressure || 1,
+      0,
+      0,
+    );
   };
 
   private readonly onPointerMove = (e: PointerEvent): void => {
@@ -326,7 +338,14 @@ export class TouchInput {
     if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
   }
 
-  private touch(action: number, id: bigint, point: DevicePoint, pressure: number, actionButton: number, buttons: number): void {
+  private touch(
+    action: number,
+    id: bigint,
+    point: DevicePoint,
+    pressure: number,
+    actionButton: number,
+    buttons: number,
+  ): void {
     this.send(
       injectTouch({
         action,

@@ -113,8 +113,8 @@ export function stripEmulationPrevention(nal: Uint8Array): Uint8Array {
   let n = 0;
   let zeros = 0;
   for (let i = 0; i < nal.length; i++) {
-    const b = nal[i]!;
-    if (zeros >= 2 && b === 3 && i + 1 < nal.length && nal[i + 1]! <= 3) {
+    const b = nal[i] ?? 0;
+    if (zeros >= 2 && b === 3 && i + 1 < nal.length && (nal[i + 1] ?? 0) <= 3) {
       zeros = 0;
       continue;
     }
@@ -126,7 +126,10 @@ export function stripEmulationPrevention(nal: Uint8Array): Uint8Array {
 
 export class BitReader {
   private pos = 0;
-  constructor(private readonly data: Uint8Array, startByte = 0) {
+  constructor(
+    private readonly data: Uint8Array,
+    startByte = 0,
+  ) {
     this.pos = startByte * 8;
   }
   bit(): number {
@@ -196,7 +199,19 @@ export interface H264Sps {
 const H264_NAL_SPS = 7;
 const H264_NAL_PPS = 8;
 const HIGH_PROFILES: Record<number, true> = {
-  100: true, 110: true, 122: true, 244: true, 44: true, 83: true, 86: true, 118: true, 128: true, 138: true, 139: true, 134: true, 135: true,
+  100: true,
+  110: true,
+  122: true,
+  244: true,
+  44: true,
+  83: true,
+  86: true,
+  118: true,
+  128: true,
+  138: true,
+  139: true,
+  134: true,
+  135: true,
 };
 
 function skipScalingList(r: BitReader, size: number): void {
@@ -392,7 +407,7 @@ export function h265CodecString(sps: H265Sps): string {
   let lastNonZero = 0;
   for (let i = 0; i < 6; i++) if (sps.constraintBytes[i] !== 0) lastNonZero = i;
   const constraints: string[] = [];
-  for (let i = 0; i <= lastNonZero; i++) constraints.push(hex2(sps.constraintBytes[i]!));
+  for (let i = 0; i <= lastNonZero; i++) constraints.push(hex2(sps.constraintBytes[i] ?? 0));
   return `hev1.${space}${sps.profileIdc}.${compat}.${tier}${sps.levelIdc}.${constraints.join(".")}`;
 }
 
@@ -465,7 +480,7 @@ export function findSequenceHeaderObu(data: Uint8Array): Uint8Array | null {
   let pos = 0;
   while (pos < data.length) {
     const start = pos;
-    const header = data[pos++]!;
+    const header = data[pos++] ?? 0;
     if ((header & 0x80) !== 0) return null; // forbidden bit
     const type = (header >> 3) & 0xf;
     const hasExtension = (header >> 2) & 1;
@@ -490,7 +505,7 @@ export function findSequenceHeaderObu(data: Uint8Array): Uint8Array | null {
 /** Parse an AV1 sequence header OBU (with its OBU header). */
 export function parseAv1SequenceHeader(obu: Uint8Array): Av1SequenceInfo {
   let pos = 1;
-  const header = obu[0]!;
+  const header = obu[0] ?? 0;
   if ((header >> 2) & 1) pos++;
   if ((header >> 1) & 1) pos = readLeb128(obu, pos).next;
   const r = new BitReader(obu, pos);
@@ -597,7 +612,18 @@ export function parseAv1SequenceHeader(obu: Uint8Array): Av1SequenceInfo {
     }
     if (subsamplingX && subsamplingY) chromaSamplePosition = r.bits(2);
   }
-  return { profile, levelIdx, tier, bitDepth, monochrome, subsamplingX, subsamplingY, chromaSamplePosition, maxWidth, maxHeight };
+  return {
+    profile,
+    levelIdx,
+    tier,
+    bitDepth,
+    monochrome,
+    subsamplingX,
+    subsamplingY,
+    chromaSamplePosition,
+    maxWidth,
+    maxHeight,
+  };
 }
 
 export function av1CodecString(info: Av1SequenceInfo): string {
@@ -637,7 +663,12 @@ export interface DecoderConfig {
 
 /** Decoder config for codecs that carry no usable config packet (VP8/VP9). */
 export function buildConfiglessConfig(codec: VideoCodec, width: number, height: number): VideoDecoderConfig {
-  return { codec: CODEC_PROBE_STRINGS[codec][0]!, codedWidth: width, codedHeight: height, optimizeForLatency: true };
+  return {
+    codec: CODEC_PROBE_STRINGS[codec][0] ?? codec,
+    codedWidth: width,
+    codedHeight: height,
+    optimizeForLatency: true,
+  };
 }
 
 /**
@@ -653,10 +684,11 @@ export function buildConfigFromPacket(
   switch (codec) {
     case "h264": {
       const nalus = splitAnnexB(packet);
-      const sps = nalus.filter((n) => (n[0]! & 0x1f) === H264_NAL_SPS);
-      const pps = nalus.filter((n) => (n[0]! & 0x1f) === H264_NAL_PPS);
-      if (sps.length === 0 || pps.length === 0) return null;
-      const info = parseH264Sps(sps[0]!);
+      const sps = nalus.filter((n) => ((n[0] ?? 0) & 0x1f) === H264_NAL_SPS);
+      const pps = nalus.filter((n) => ((n[0] ?? 0) & 0x1f) === H264_NAL_PPS);
+      const firstSps = sps[0];
+      if (firstSps === undefined || pps.length === 0) return null;
+      const info = parseH264Sps(firstSps);
       return {
         config: {
           codec: h264CodecString(info),
@@ -671,11 +703,12 @@ export function buildConfigFromPacket(
     }
     case "h265": {
       const nalus = splitAnnexB(packet);
-      const vps = nalus.filter((n) => ((n[0]! >> 1) & 0x3f) === HEVC_NAL_VPS);
-      const sps = nalus.filter((n) => ((n[0]! >> 1) & 0x3f) === HEVC_NAL_SPS);
-      const pps = nalus.filter((n) => ((n[0]! >> 1) & 0x3f) === HEVC_NAL_PPS);
-      if (vps.length === 0 || sps.length === 0 || pps.length === 0) return null;
-      const info = parseH265Sps(sps[0]!);
+      const vps = nalus.filter((n) => (((n[0] ?? 0) >> 1) & 0x3f) === HEVC_NAL_VPS);
+      const sps = nalus.filter((n) => (((n[0] ?? 0) >> 1) & 0x3f) === HEVC_NAL_SPS);
+      const pps = nalus.filter((n) => (((n[0] ?? 0) >> 1) & 0x3f) === HEVC_NAL_PPS);
+      const firstSps = sps[0];
+      if (vps.length === 0 || firstSps === undefined || pps.length === 0) return null;
+      const info = parseH265Sps(firstSps);
       return {
         config: {
           codec: h265CodecString(info),

@@ -5,11 +5,11 @@ import { api } from "../api.ts";
 export type Theme = "dark" | "light";
 
 export function applyTheme(theme: Theme): void {
-  document.documentElement.dataset["theme"] = theme;
+  document.documentElement.dataset.theme = theme;
 }
 
 export function currentTheme(): Theme {
-  return document.documentElement.dataset["theme"] === "light" ? "light" : "dark";
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
 
 export class AppContext {

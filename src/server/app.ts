@@ -22,7 +22,10 @@ export interface RequestContext {
 }
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -55,7 +58,12 @@ export interface AppRouter {
    * WebSocket endpoint at an exact path. `prepare` runs after the gate and may reject with
    * HttpError or return module state stored on `ws.data.state`.
    */
-  ws(path: string, gate: Gate, prepare: (ctx: RequestContext) => Promise<unknown> | unknown, handlers: WsHandlers): void;
+  ws(
+    path: string,
+    gate: Gate,
+    prepare: (ctx: RequestContext) => Promise<unknown> | unknown,
+    handlers: WsHandlers,
+  ): void;
 }
 
 export interface Logger {

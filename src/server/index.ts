@@ -5,10 +5,10 @@
 import { join } from "node:path";
 import scrcpyServerAsset from "../../assets/scrcpy-server" with { type: "file" };
 import pkg from "../../package.json" with { type: "json" };
-import type { AdbStatus, AppServices } from "./app.ts";
 import { registerAdb } from "./adb/index.ts";
+import type { AdbStatus, AppServices } from "./app.ts";
 import { AuthService } from "./auth/index.ts";
-import { loadConfig, DEFAULT_PORT } from "./config.ts";
+import { DEFAULT_PORT, loadConfig } from "./config.ts";
 import { backupDatabase, createStores, DB_BACKUP_FILE_NAME, DB_FILE_NAME, openDatabase } from "./db/index.ts";
 import { Router } from "./http.ts";
 import { log } from "./log.ts";
@@ -23,9 +23,11 @@ import "./embed.ts";
 const HEALTHCHECK_TIMEOUT_MS = 4000;
 
 async function healthcheck(): Promise<number> {
-  const port = Number(process.env["PORT"] ?? DEFAULT_PORT);
+  const port = Number(process.env.PORT ?? DEFAULT_PORT);
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/config`, { signal: AbortSignal.timeout(HEALTHCHECK_TIMEOUT_MS) });
+    const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+      signal: AbortSignal.timeout(HEALTHCHECK_TIMEOUT_MS),
+    });
     return res.status === 200 ? 0 : 1;
   } catch {
     return 1;
@@ -56,7 +58,8 @@ async function main(): Promise<void> {
     labels: () => stores.labels.all(),
     scrcpyServerPath: async () => {
       if (config.scrcpyServerPath) {
-        if (!(await Bun.file(config.scrcpyServerPath).exists())) throw new Error(`SCRCPY_SERVER_PATH not found: ${config.scrcpyServerPath}`);
+        if (!(await Bun.file(config.scrcpyServerPath).exists()))
+          throw new Error(`SCRCPY_SERVER_PATH not found: ${config.scrcpyServerPath}`);
         return config.scrcpyServerPath;
       }
       return scrcpyServerAsset;
@@ -72,7 +75,11 @@ async function main(): Promise<void> {
   const server = router.listen(config.port);
   mainLog.info(`webscrcpy ${pkg.version} listening on http://localhost:${server.port}/`);
   mainLog.info(`data root: ${config.dataRoot}${statics.usesEmbedded ? " (embedded assets)" : ""}`);
-  mainLog.info(auth.mode() === "off" ? "auth: off (put an authenticating reverse proxy in front for remote access)" : `auth: password${auth.fromEnv ? " (AUTH_PASSWORD)" : ""}`);
+  mainLog.info(
+    auth.mode() === "off"
+      ? "auth: off (put an authenticating reverse proxy in front for remote access)"
+      : `auth: password${auth.fromEnv ? " (AUTH_PASSWORD)" : ""}`,
+  );
 
   let stopping = false;
   const shutdown = (signal: string): void => {

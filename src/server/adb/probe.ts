@@ -2,13 +2,21 @@
  * Device capability probe: screen size/density and MediaCodec encoder names.
  * `/ws/probe?serial=` sends one ProbeResult then closes.
  */
-import type { Adb } from "@yume-chan/adb";
-import { WsClose, type ProbeResult } from "@common/protocol.ts";
+
+import { type ProbeResult, WsClose } from "@common/protocol.ts";
 import { isSerial } from "@common/validate.ts";
-import { HttpError, type AppRouter, type AppServices, type AppSocket, type Logger, type RequestContext } from "../app.ts";
+import type { Adb } from "@yume-chan/adb";
+import {
+  type AppRouter,
+  type AppServices,
+  type AppSocket,
+  HttpError,
+  type Logger,
+  type RequestContext,
+} from "../app.ts";
 import { ensureServerJar } from "./jar.ts";
 import { buildServerCommand } from "./options.ts";
-import { describe, type AdbService } from "./service.ts";
+import { type AdbService, describe } from "./service.ts";
 import { closeWith } from "./ws.ts";
 
 export interface EncoderLists {
@@ -34,8 +42,7 @@ const AUDIO_NAME_HINTS = ["opus", "aac", "flac"];
 export function parseDumpsysEncoders(output: string): EncoderLists {
   const lists: EncoderLists = { video: [], audio: [] };
   const regex = /Encoder "([^"]+)" supports/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(output)) !== null) {
+  for (const match of output.matchAll(regex)) {
     const name = match[1] ?? "";
     const lower = name.toLowerCase();
     if (VIDEO_NAME_HINTS.some((hint) => lower.includes(hint))) {
@@ -54,8 +61,7 @@ export function parseScrcpyEncoderList(output: string): EncoderLists {
     [/--video-encoder=(\S+)/g, lists.video],
     [/--audio-encoder=(\S+)/g, lists.audio],
   ] as const) {
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(output)) !== null) {
+    for (const match of output.matchAll(regex)) {
       const name = match[1] ?? "";
       if (!target.includes(name)) target.push(name);
     }
@@ -71,7 +77,12 @@ async function listEncoders(adb: Adb, sdk: number, scrcpyServerPath: string, log
 }
 
 /** Full probe; cached per serial until the device disappears. */
-export async function probeDevice(service: AdbService, serial: string, scrcpyServerPath: string, log: Logger): Promise<ProbeResult> {
+export async function probeDevice(
+  service: AdbService,
+  serial: string,
+  scrcpyServerPath: string,
+  log: Logger,
+): Promise<ProbeResult> {
   const cache = service.cacheFor(serial);
   if (cache.probe) return cache.probe;
   const adb = await service.getAdb(serial);
@@ -97,7 +108,12 @@ export async function probeDevice(service: AdbService, serial: string, scrcpySer
 }
 
 /** Audio encoder names only (for codec fallback); [] when unknown. Never throws. */
-export function audioEncodersFor(service: AdbService, serial: string, scrcpyServerPath: string, log: Logger): Promise<string[]> {
+export function audioEncodersFor(
+  service: AdbService,
+  serial: string,
+  scrcpyServerPath: string,
+  log: Logger,
+): Promise<string[]> {
   const cache = service.cacheFor(serial);
   if (cache.audioEncoders) return cache.audioEncoders;
   const pending = (async () => {

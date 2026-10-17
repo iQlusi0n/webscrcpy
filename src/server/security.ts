@@ -2,14 +2,17 @@
  * Request-level defences (D9 layers 1–4): Host allowlist, Origin == Host, per-launch token cookie,
  * framing headers, body cap, and the loopback-only X-Forwarded-Proto trust.
  */
-import { isIP } from "node:net";
+
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { buildCookie, parseCookies, type CookieAttrs } from "./auth/session.ts";
+import { isIP } from "node:net";
+import { buildCookie, type CookieAttrs, parseCookies } from "./auth/session.ts";
 
 export const TOKEN_COOKIE = "wsc_token";
 export const MAX_BODY_BYTES = 1024 * 1024;
 
-export type HttpDecision = { allowed: true; setTokenCookie: boolean } | { allowed: false; status: number; reason: string };
+export type HttpDecision =
+  | { allowed: true; setTokenCookie: boolean }
+  | { allowed: false; status: number; reason: string };
 
 export function isLoopbackAddress(ip: string | undefined): boolean {
   if (!ip) return false;
@@ -103,7 +106,8 @@ export class SecurityPolicy {
     const safe = TOP_LEVEL_DOC_METHODS[method] === true;
     if (isApi || !safe) {
       const origin = headers.get("origin");
-      if (origin !== null && !originMatchesHost(origin, host ?? "")) return { allowed: false, status: 403, reason: "origin mismatch" };
+      if (origin !== null && !originMatchesHost(origin, host ?? ""))
+        return { allowed: false, status: 403, reason: "origin mismatch" };
     }
     const tokenRequired = isApi && !(method === "GET" && pathname === "/api/config");
     if (tokenRequired && !this.isValidToken(parseCookies(headers.get("cookie"))[TOKEN_COOKIE])) {
@@ -117,8 +121,10 @@ export class SecurityPolicy {
     const host = headers.get("host");
     if (!this.isHostAllowed(host)) return { allowed: false, status: 403, reason: "host not allowed" };
     const origin = headers.get("origin");
-    if (origin !== null && !originMatchesHost(origin, host ?? "")) return { allowed: false, status: 403, reason: "origin mismatch" };
-    if (!this.isValidToken(parseCookies(headers.get("cookie"))[TOKEN_COOKIE])) return { allowed: false, status: 403, reason: "missing or invalid token" };
+    if (origin !== null && !originMatchesHost(origin, host ?? ""))
+      return { allowed: false, status: 403, reason: "origin mismatch" };
+    if (!this.isValidToken(parseCookies(headers.get("cookie"))[TOKEN_COOKIE]))
+      return { allowed: false, status: 403, reason: "missing or invalid token" };
     return { allowed: true, setTokenCookie: false };
   }
 

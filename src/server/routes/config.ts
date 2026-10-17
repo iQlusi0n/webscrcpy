@@ -1,5 +1,5 @@
-import { SCRCPY_VERSION } from "@common/scrcpy.ts";
 import type { ConfigResponse } from "@common/api.ts";
+import { SCRCPY_VERSION } from "@common/scrcpy.ts";
 import type { AdbStatus, AppConfig } from "../app.ts";
 import type { AuthService } from "../auth/index.ts";
 import { jsonResponse, type Router } from "../http.ts";

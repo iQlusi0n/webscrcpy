@@ -3,7 +3,7 @@
  * build embeds dist/public) and otherwise from `<repo>/dist/public` on disk. Extensionless GETs fall
  * back to index.html (SPA). Everything is `Cache-Control: no-cache` — names are stable, not hashed.
  */
-import { resolve, normalize, extname } from "node:path";
+import { extname, normalize, resolve } from "node:path";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -39,7 +39,7 @@ function indexEmbedded(): Record<string, EmbeddedEntry> {
     const base = name.slice(name.lastIndexOf("/") + 1);
     out[base] = { blob };
     const m = /^(.+)-[a-z0-9]{8,}(\.[A-Za-z0-9]+)$/.exec(base);
-    if (m && m[1] && m[2] && out[m[1] + m[2]] === undefined) out[m[1] + m[2]] = { blob };
+    if (m?.[1] && m[2] && out[m[1] + m[2]] === undefined) out[m[1] + m[2]] = { blob };
   }
   return out;
 }
@@ -58,7 +58,7 @@ export class StaticFiles {
     const base = relPath.slice(relPath.lastIndexOf("/") + 1);
     const e = this.embedded[base];
     if (e) return e.blob;
-    const abs = resolve(this.dir, "." + relPath);
+    const abs = resolve(this.dir, `.${relPath}`);
     if (!abs.startsWith(this.dir)) return null;
     const file = Bun.file(abs);
     if (!(await file.exists())) return null;

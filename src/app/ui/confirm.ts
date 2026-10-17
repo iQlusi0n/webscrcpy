@@ -1,4 +1,4 @@
-import { Modal, button } from "./modal.ts";
+import { button, Modal } from "./modal.ts";
 
 export interface ConfirmOptions {
   ok?: string;

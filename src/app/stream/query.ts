@@ -28,7 +28,10 @@ export function buildStreamQuery(
 }
 
 /** Merge the i-frame interval into user codec options unless the user already set the key. */
-export function buildCodecOptions(iFrameInterval: number | undefined, userOptions: string | undefined): string | undefined {
+export function buildCodecOptions(
+  iFrameInterval: number | undefined,
+  userOptions: string | undefined,
+): string | undefined {
   const user = userOptions?.trim() ?? "";
   const userHasKey = user.split(",").some((part) => part.split(/[:=]/)[0] === "i-frame-interval");
   if (!iFrameInterval || userHasKey) return user || undefined;

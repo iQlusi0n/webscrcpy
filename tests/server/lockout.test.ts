@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { CLEARED_LOCKOUT, LOCKOUT_LOCK_MS, LOCKOUT_MAX_FAILS, LOCKOUT_WINDOW_MS, isLocked, recordFailure } from "../../src/server/auth/lockout.ts";
+import {
+  CLEARED_LOCKOUT,
+  isLocked,
+  LOCKOUT_LOCK_MS,
+  LOCKOUT_MAX_FAILS,
+  LOCKOUT_WINDOW_MS,
+  recordFailure,
+} from "../../src/server/auth/lockout.ts";
 
 describe("lockout policy", () => {
   test("five failures inside the window lock for 15 minutes", () => {

@@ -2,9 +2,10 @@
  * Boot-time configuration. Precedence: env > `<dataRoot>/config.json` > default.
  * Everything else (users, settings) lives in SQLite.
  */
+
+import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { mkdirSync, readFileSync } from "node:fs";
 import type { AppConfig } from "./app.ts";
 
 export const DEFAULT_PORT = 8000;
@@ -21,10 +22,10 @@ export interface FileConfig {
 export type Env = Record<string, string | undefined>;
 
 export function resolveDataRoot(env: Env): string {
-  const explicit = env["DATA_ROOT"];
-  if (explicit && explicit.trim()) return resolve(explicit.trim());
-  const xdg = env["XDG_DATA_HOME"];
-  if (xdg && xdg.trim()) return join(resolve(xdg.trim()), APP_DIR_NAME);
+  const explicit = env.DATA_ROOT;
+  if (explicit?.trim()) return resolve(explicit.trim());
+  const xdg = env.XDG_DATA_HOME;
+  if (xdg?.trim()) return join(resolve(xdg.trim()), APP_DIR_NAME);
   return join(homedir(), ".local", "share", APP_DIR_NAME);
 }
 
@@ -44,28 +45,34 @@ function parsePort(v: string | undefined): number | undefined {
 function parseCsv(v: string | undefined): string[] | undefined {
   const t = nonEmpty(v);
   if (t === undefined) return undefined;
-  return t.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  return t
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 function stringList(v: unknown, key: string): string[] | undefined {
   if (v === undefined) return undefined;
-  if (!Array.isArray(v) || !v.every((s) => typeof s === "string")) throw new Error(`config.json: ${key} must be a string array`);
+  if (!Array.isArray(v) || !v.every((s) => typeof s === "string"))
+    throw new Error(`config.json: ${key} must be a string array`);
   return (v as string[]).map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 export function parseFileConfig(text: string): FileConfig {
   const raw: unknown = JSON.parse(text);
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("config.json: top level must be an object");
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new Error("config.json: top level must be an object");
   const o = raw as Record<string, unknown>;
   const out: FileConfig = {};
-  if (o["port"] !== undefined) {
-    const p = o["port"];
-    if (typeof p !== "number" || !Number.isInteger(p) || p < 1 || p > 65535) throw new Error("config.json: port must be an integer in 1..65535");
+  if (o.port !== undefined) {
+    const p = o.port;
+    if (typeof p !== "number" || !Number.isInteger(p) || p < 1 || p > 65535)
+      throw new Error("config.json: port must be an integer in 1..65535");
     out.port = p;
   }
-  const hosts = stringList(o["allowedHosts"], "allowedHosts");
+  const hosts = stringList(o.allowedHosts, "allowedHosts");
   if (hosts) out.allowedHosts = hosts;
-  const ancestors = stringList(o["frameAncestors"], "frameAncestors");
+  const ancestors = stringList(o.frameAncestors, "frameAncestors");
   if (ancestors) out.frameAncestors = ancestors;
   return out;
 }
@@ -85,17 +92,17 @@ function readFileConfig(path: string): FileConfig {
 export function loadConfig(env: Env = process.env): AppConfig {
   const dataRoot = resolveDataRoot(env);
   mkdirSync(dataRoot, { recursive: true });
-  const configPath = nonEmpty(env["CONFIG"]) ?? join(dataRoot, CONFIG_FILE_NAME);
+  const configPath = nonEmpty(env.CONFIG) ?? join(dataRoot, CONFIG_FILE_NAME);
   const file = readFileConfig(configPath);
   return {
-    port: parsePort(env["PORT"]) ?? file.port ?? DEFAULT_PORT,
+    port: parsePort(env.PORT) ?? file.port ?? DEFAULT_PORT,
     dataRoot,
-    docker: env["APP_DOCKER"] === "1",
-    allowedHosts: parseCsv(env["ALLOWED_HOSTS"]) ?? file.allowedHosts ?? [],
+    docker: env.APP_DOCKER === "1",
+    allowedHosts: parseCsv(env.ALLOWED_HOSTS) ?? file.allowedHosts ?? [],
     frameAncestors: file.frameAncestors ?? [],
-    authPasswordFromEnv: nonEmpty(env["AUTH_PASSWORD"]),
-    adbPath: nonEmpty(env["ADB_PATH"]),
-    adbServer: nonEmpty(env["ADB_SERVER"]),
-    scrcpyServerPath: nonEmpty(env["SCRCPY_SERVER_PATH"]),
+    authPasswordFromEnv: nonEmpty(env.AUTH_PASSWORD),
+    adbPath: nonEmpty(env.ADB_PATH),
+    adbServer: nonEmpty(env.ADB_SERVER),
+    scrcpyServerPath: nonEmpty(env.SCRCPY_SERVER_PATH),
   };
 }

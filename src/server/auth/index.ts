@@ -4,11 +4,18 @@
  * mode every `auth`-gated route and every WS upgrade needs a valid `wsc_sid` session.
  */
 import type { AuthMode } from "@common/api.ts";
-import { HttpError, type AppConfig, type Gate } from "../app.ts";
+import { type AppConfig, type Gate, HttpError } from "../app.ts";
 import type { Stores } from "../db/index.ts";
 import { CLEARED_LOCKOUT, isLocked, recordFailure } from "./lockout.ts";
 import { BLIND_HASH, hashPassword, verifyPassword } from "./password.ts";
-import { SESSION_COOKIE, SESSION_TOUCH_INTERVAL_MS, SESSION_TTL_MS, hashToken, newSessionToken, parseCookies } from "./session.ts";
+import {
+  hashToken,
+  newSessionToken,
+  parseCookies,
+  SESSION_COOKIE,
+  SESSION_TOUCH_INTERVAL_MS,
+  SESSION_TTL_MS,
+} from "./session.ts";
 
 export interface Principal {
   mode: AuthMode;
@@ -17,7 +24,10 @@ export interface Principal {
   sessionKey?: string;
 }
 
-export type LoginResult = { ok: true; token: string } | { ok: false; reason: "invalid" } | { ok: false; reason: "locked"; retryAfterMs: number };
+export type LoginResult =
+  | { ok: true; token: string }
+  | { ok: false; reason: "invalid" }
+  | { ok: false; reason: "locked"; retryAfterMs: number };
 
 export class AuthService {
   /** Hash of AUTH_PASSWORD, computed once; undefined when the env var is absent. */
@@ -55,7 +65,8 @@ export class AuthService {
       this.stores.sessions.delete(key);
       return { mode, loggedIn: false };
     }
-    if (now - session.lastSeenAt > SESSION_TOUCH_INTERVAL_MS) this.stores.sessions.touch(key, now, now + SESSION_TTL_MS);
+    if (now - session.lastSeenAt > SESSION_TOUCH_INTERVAL_MS)
+      this.stores.sessions.touch(key, now, now + SESSION_TTL_MS);
     return { mode, loggedIn: true, sessionKey: key };
   }
 

@@ -2,9 +2,10 @@
  * scrcpy media-socket framing (SCRCPY_PROTOCOL.md §3). Pure parsing lives here so it can be
  * unit-tested; `SocketReader` is the thin exact-read cursor over an AdbSocket.
  */
-import { BufferedReadableStream, type ReadableStream as TangoReadableStream } from "@yume-chan/stream-extra";
-import type { AdbSocket } from "@yume-chan/adb";
+
 import { FRAME_HEADER_SIZE, PTS_FLAG_CONFIG, PTS_FLAG_KEYFRAME, PTS_MASK } from "@common/scrcpy.ts";
+import type { AdbSocket } from "@yume-chan/adb";
+import { BufferedReadableStream, type ReadableStream as TangoReadableStream } from "@yume-chan/stream-extra";
 
 export type FrameHeader =
   | { kind: "session"; flags: number; width: number }

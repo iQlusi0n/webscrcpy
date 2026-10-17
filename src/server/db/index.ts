@@ -1,10 +1,10 @@
 /** SQLite open/migrate/backup and the store bundle the rest of the server uses. */
 import { Database } from "bun:sqlite";
 import { copyFileSync } from "node:fs";
+import { LabelStore } from "./labels.ts";
 import { migrate } from "./migrations.ts";
 import { SessionStore } from "./sessions.ts";
 import { SettingsStore } from "./settings.ts";
-import { LabelStore } from "./labels.ts";
 
 export const DB_FILE_NAME = "webscrcpy.db";
 export const DB_BACKUP_FILE_NAME = "webscrcpy.db.bak";

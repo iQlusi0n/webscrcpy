@@ -3,10 +3,11 @@
  * `Adb` handles, SDK level and probed encoder lists. Everything else in this module gets
  * device access through here.
  */
+
+import type { ProbeResult } from "@common/protocol.ts";
+import { isConnectAddress, isHostExecutablePath } from "@common/validate.ts";
 import { Adb, AdbServerClient } from "@yume-chan/adb";
 import { AdbServerNodeTcpConnector } from "@yume-chan/adb-server-node-tcp";
-import { isConnectAddress, isHostExecutablePath } from "@common/validate.ts";
-import type { ProbeResult } from "@common/protocol.ts";
 import type { AdbStatus, AppConfig, Logger } from "../app.ts";
 
 const DEFAULT_SERVER_HOST = "127.0.0.1";
@@ -30,7 +31,10 @@ export class AdbService {
   readonly client: AdbServerClient;
   private readonly devices = new Map<string, DeviceCache>();
 
-  constructor(client: AdbServerClient, private readonly log: Logger) {
+  constructor(
+    client: AdbServerClient,
+    private readonly log: Logger,
+  ) {
     this.client = client;
   }
 
@@ -130,7 +134,8 @@ export async function startAdbService(config: AppConfig, log: Logger): Promise<A
     return {
       status: {
         ok: false,
-        message: "adb not found on PATH. Install platform-tools (apt install adb / brew install android-platform-tools) or set ADB_PATH.",
+        message:
+          "adb not found on PATH. Install platform-tools (apt install adb / brew install android-platform-tools) or set ADB_PATH.",
       },
     };
   }
@@ -140,14 +145,22 @@ export async function startAdbService(config: AppConfig, log: Logger): Promise<A
     version = await client.getVersion();
   } catch (first) {
     if (external || !adbPath) {
-      return { status: { ok: false, path: adbPath, message: `cannot reach adb server at ${spec.host}:${spec.port}: ${describe(first)}` } };
+      return {
+        status: {
+          ok: false,
+          path: adbPath,
+          message: `cannot reach adb server at ${spec.host}:${spec.port}: ${describe(first)}`,
+        },
+      };
     }
     const startError = await startDaemon(adbPath, log);
     if (startError) return { status: { ok: false, path: adbPath, message: startError } };
     try {
       version = await client.getVersion();
     } catch (second) {
-      return { status: { ok: false, path: adbPath, message: `adb server started but is unreachable: ${describe(second)}` } };
+      return {
+        status: { ok: false, path: adbPath, message: `adb server started but is unreachable: ${describe(second)}` },
+      };
     }
   }
   log.info(`adb server ${spec.host}:${spec.port} protocol version ${version}${adbPath ? ` (${adbPath})` : ""}`);

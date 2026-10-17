@@ -22,7 +22,12 @@ describe("parseFrameHeader", () => {
     const pts = 123_456_789n;
     expect(parseFrameHeader(u64(pts))).toEqual({ kind: "media", config: false, keyframe: false, pts });
     expect(parseFrameHeader(u64(PTS_FLAG_CONFIG))).toEqual({ kind: "media", config: true, keyframe: false, pts: 0n });
-    expect(parseFrameHeader(u64(PTS_FLAG_KEYFRAME | pts))).toEqual({ kind: "media", config: false, keyframe: true, pts });
+    expect(parseFrameHeader(u64(PTS_FLAG_KEYFRAME | pts))).toEqual({
+      kind: "media",
+      config: false,
+      keyframe: true,
+      pts,
+    });
   });
 
   test("rejects short input", () => {

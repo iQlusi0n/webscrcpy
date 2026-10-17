@@ -1,10 +1,10 @@
-import type { DeviceDescriptor, FileEntry, FilesRequest, FilesResponse, FilesPushEnd } from "@common/protocol.ts";
+import type { DeviceDescriptor, FileEntry, FilesPushEnd, FilesRequest, FilesResponse } from "@common/protocol.ts";
 import { FILES_BINARY_PREFIX, FILES_CHUNK_SIZE } from "@common/protocol.ts";
 import { api, errorMessage, wsUrl } from "../api.ts";
 import { ConfirmModal } from "./confirm.ts";
 import { deviceDisplayName } from "./deviceCard.ts";
-import { icon, type IconName } from "./icons.ts";
-import { Modal, button, iconButton } from "./modal.ts";
+import { type IconName, icon } from "./icons.ts";
+import { button, iconButton, Modal } from "./modal.ts";
 
 const START_PATH = "/sdcard";
 const FALLBACK_PATH = "/data/local/tmp";
@@ -12,10 +12,37 @@ const FALLBACK_PATH = "/data/local/tmp";
 const PUSH_HIGH_WATER = 1 << 20;
 
 const EXT_ICON: Record<string, IconName> = {
-  jpg: "image", jpeg: "image", png: "image", gif: "image", webp: "image", bmp: "image", heic: "image", svg: "image",
-  mp4: "video", mkv: "video", webm: "video", mov: "video", avi: "video", "3gp": "video",
-  mp3: "audio", m4a: "audio", aac: "audio", flac: "audio", ogg: "audio", opus: "audio", wav: "audio",
-  txt: "text", log: "text", json: "text", xml: "text", md: "text", csv: "text", html: "text", js: "text", sh: "text", prop: "text",
+  jpg: "image",
+  jpeg: "image",
+  png: "image",
+  gif: "image",
+  webp: "image",
+  bmp: "image",
+  heic: "image",
+  svg: "image",
+  mp4: "video",
+  mkv: "video",
+  webm: "video",
+  mov: "video",
+  avi: "video",
+  "3gp": "video",
+  mp3: "audio",
+  m4a: "audio",
+  aac: "audio",
+  flac: "audio",
+  ogg: "audio",
+  opus: "audio",
+  wav: "audio",
+  txt: "text",
+  log: "text",
+  json: "text",
+  xml: "text",
+  md: "text",
+  csv: "text",
+  html: "text",
+  js: "text",
+  sh: "text",
+  prop: "text",
 };
 
 function iconFor(entry: FileEntry): IconName {
@@ -102,7 +129,8 @@ class FilesClient {
     }
     const p = this.pending.get(msg.id);
     if (!p) return;
-    if (msg.type === "done" || msg.type === "error" || msg.type === "list" || msg.type === "stat") this.pending.delete(msg.id);
+    if (msg.type === "done" || msg.type === "error" || msg.type === "list" || msg.type === "stat")
+      this.pending.delete(msg.id);
     p.onText(msg);
   }
 
@@ -415,7 +443,9 @@ export class FilesModal extends Modal {
   }
 
   private visibleEntries(): FileEntry[] {
-    const list = this.filterText ? this.entries.filter((e) => e.name.toLowerCase().includes(this.filterText)) : [...this.entries];
+    const list = this.filterText
+      ? this.entries.filter((e) => e.name.toLowerCase().includes(this.filterText))
+      : [...this.entries];
     const dir = this.sortAsc ? 1 : -1;
     list.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
@@ -437,7 +467,7 @@ export class FilesModal extends Modal {
   private renderRow(entry: FileEntry): HTMLTableRowElement {
     const tr = document.createElement("tr");
     tr.className = entry.isDir ? "dir" : "file";
-    tr.dataset["name"] = entry.name;
+    tr.dataset.name = entry.name;
 
     const tdCheck = document.createElement("td");
     const cb = document.createElement("input");
@@ -486,7 +516,9 @@ export class FilesModal extends Modal {
     const n = this.selected.size;
     this.headerCheck.checked = n > 0 && n === visible;
     this.headerCheck.indeterminate = n > 0 && n < visible;
-    const transfers = this.transfers ? `, ${this.transfers} transfer${this.transfers === 1 ? "" : "s"} in progress` : "";
+    const transfers = this.transfers
+      ? `, ${this.transfers} transfer${this.transfers === 1 ? "" : "s"} in progress`
+      : "";
     this.status.textContent = `${n} selected / ${visible} item${visible === 1 ? "" : "s"}${transfers}`;
     this.deleteBtn.disabled = n === 0;
     const files = [...this.selected].filter((name) => this.entries.some((e) => e.name === name && !e.isDir));
@@ -578,15 +610,26 @@ export class FilesModal extends Modal {
     if (names.length === 0) return;
     const what = names.length === 1 ? `"${names[0]}"` : `${names.length} items`;
     const ok = await this.askChild(
-      () => ConfirmModal.confirm("Delete?", `Permanently delete ${what} from ${this.path}? Directories are removed recursively.`, { ok: "Delete", danger: true }),
+      () =>
+        ConfirmModal.confirm(
+          "Delete?",
+          `Permanently delete ${what} from ${this.path}? Directories are removed recursively.`,
+          { ok: "Delete", danger: true },
+        ),
       false,
     );
     if (!ok) return;
     this.hideMessage();
     try {
-      const res = await api.devices.deleteFiles({ serial: this.device.serial, paths: names.map((n) => joinPath(this.path, n)) });
+      const res = await api.devices.deleteFiles({
+        serial: this.device.serial,
+        paths: names.map((n) => joinPath(this.path, n)),
+      });
       if (!res.ok && res.errors?.length) {
-        this.showMessage(`${res.errors.length} of ${names.length} not deleted: ${res.errors.map((e) => `${e.path} (${e.error})`).join("; ")}`, true);
+        this.showMessage(
+          `${res.errors.length} of ${names.length} not deleted: ${res.errors.map((e) => `${e.path} (${e.error})`).join("; ")}`,
+          true,
+        );
       }
     } catch (err) {
       this.showMessage(`delete failed: ${errorMessage(err)}`, true);
@@ -632,7 +675,12 @@ export class FilesModal extends Modal {
       return;
     }
     void this.askChild(
-      () => ConfirmModal.confirm("Transfers in progress", `${this.transfers} transfer(s) are still running. Close and cancel them?`, { ok: "Close", danger: true }),
+      () =>
+        ConfirmModal.confirm(
+          "Transfers in progress",
+          `${this.transfers} transfer(s) are still running. Close and cancel them?`,
+          { ok: "Close", danger: true },
+        ),
       false,
     ).then((ok) => {
       if (ok) this.close();

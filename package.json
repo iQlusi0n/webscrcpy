@@ -12,7 +12,10 @@
     "build": "bun run build:web && bun build --compile --minify --asset-naming=\"[name].[ext]\" src/server/index.ts --outfile dist/webscrcpy",
     "start": "bun run build:web && bun run src/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "lint": "biome check .",
+    "lint:fix": "biome check . --write",
+    "check": "bun run lint && bun run typecheck && bun test"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
@@ -22,6 +25,7 @@
     "@yume-chan/stream-extra": "^2.6.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
     "@types/bun": "^1.4.3",
     "typescript": "^5.9.0"
   }

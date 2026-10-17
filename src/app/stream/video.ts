@@ -191,8 +191,10 @@ export class VideoRenderer {
 
   private configure(config: VideoDecoderConfig): void {
     if (!this.decoder || this.decoder.state === "closed") this.createDecoder();
+    const decoder = this.decoder;
+    if (!decoder) return;
     try {
-      this.decoder!.configure(config);
+      decoder.configure(config);
     } catch (err) {
       console.warn("[video] configure failed", err);
       this.createDecoder();

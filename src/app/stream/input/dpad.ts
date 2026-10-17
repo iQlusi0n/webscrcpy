@@ -53,13 +53,27 @@ export class DpadInput {
   private readonly onContextMenu = (e: Event): void => e.preventDefault();
 
   private readonly onPointerDown = (e: PointerEvent): void => {
-    const key = e.button === 0 ? AndroidKey.DPAD_CENTER : e.button === 2 ? AndroidKey.BACK : e.button === 1 ? AndroidKey.HOME : null;
+    const key =
+      e.button === 0
+        ? AndroidKey.DPAD_CENTER
+        : e.button === 2
+          ? AndroidKey.BACK
+          : e.button === 1
+            ? AndroidKey.HOME
+            : null;
     if (key === null) return;
     this.send(injectKeycode(KeyAction.DOWN, key, 0, 0));
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
-    const key = e.button === 0 ? AndroidKey.DPAD_CENTER : e.button === 2 ? AndroidKey.BACK : e.button === 1 ? AndroidKey.HOME : null;
+    const key =
+      e.button === 0
+        ? AndroidKey.DPAD_CENTER
+        : e.button === 2
+          ? AndroidKey.BACK
+          : e.button === 1
+            ? AndroidKey.HOME
+            : null;
     if (key === null) return;
     this.send(injectKeycode(KeyAction.UP, key, 0, 0));
   };

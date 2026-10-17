@@ -1,7 +1,8 @@
 /** Push the bundled scrcpy-server to the device unless the copy there already has the same size. */
+
+import { SCRCPY_DEVICE_PATH } from "@common/scrcpy.ts";
 import type { Adb } from "@yume-chan/adb";
 import type { ReadableStream as TangoReadableStream } from "@yume-chan/stream-extra";
-import { SCRCPY_DEVICE_PATH } from "@common/scrcpy.ts";
 import type { Logger } from "../app.ts";
 
 export async function ensureServerJar(adb: Adb, localPath: string, log: Logger): Promise<void> {

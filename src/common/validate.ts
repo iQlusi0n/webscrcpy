@@ -1,13 +1,13 @@
 /** Allowlist validators for every string that reaches adb or the device. Pure module. */
 
 /** adb serial: USB serials, emulator-5554, host:port, or [v6]:port. */
-const SERIAL_RE = /^(?:[A-Za-z0-9._:\-\[\]]{1,128})$/;
+const SERIAL_RE = /^(?:[A-Za-z0-9._:\-[\]]{1,128})$/;
 export function isSerial(s: unknown): s is string {
   return typeof s === "string" && SERIAL_RE.test(s) && !s.startsWith("-");
 }
 
 /** host[:port] for adb connect; rejects leading '-' (argv injection) and whitespace. */
-const CONNECT_RE = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.\-]{0,253})|\[[0-9A-Fa-f:.]+\])(?::(?:[1-9]\d{0,4}))?$/;
+const CONNECT_RE = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253})|\[[0-9A-Fa-f:.]+\])(?::(?:[1-9]\d{0,4}))?$/;
 export function isConnectAddress(s: unknown): s is string {
   if (typeof s !== "string" || s.length > 300 || !CONNECT_RE.test(s)) return false;
   const port = s.includes("]") ? s.split("]:")[1] : s.split(":")[1];
@@ -15,13 +15,13 @@ export function isConnectAddress(s: unknown): s is string {
 }
 
 /** MediaCodec encoder name passed into app_process argv. */
-export const ENCODER_RE = /^[A-Za-z0-9_.\-]{1,128}$/;
+export const ENCODER_RE = /^[A-Za-z0-9_.-]{1,128}$/;
 export function isEncoderName(s: unknown): s is string {
   return typeof s === "string" && ENCODER_RE.test(s);
 }
 
 /** scrcpy codec options: key[:type]=value,... */
-export const CODEC_OPTIONS_RE = /^[A-Za-z0-9_.:,=\-]{1,256}$/;
+export const CODEC_OPTIONS_RE = /^[A-Za-z0-9_.:,=-]{1,256}$/;
 export function isCodecOptions(s: unknown): s is string {
   return typeof s === "string" && CODEC_OPTIONS_RE.test(s);
 }
@@ -49,8 +49,17 @@ export function isHostExecutablePath(p: unknown): p is string {
 }
 
 export const PROTECTED_DELETE_ROOTS: Record<string, true> = {
-  "/": true, "/sdcard": true, "/storage": true, "/storage/emulated": true, "/storage/emulated/0": true,
-  "/data": true, "/system": true, "/vendor": true, "/mnt": true, "/proc": true, "/dev": true,
+  "/": true,
+  "/sdcard": true,
+  "/storage": true,
+  "/storage/emulated": true,
+  "/storage/emulated/0": true,
+  "/data": true,
+  "/system": true,
+  "/vendor": true,
+  "/mnt": true,
+  "/proc": true,
+  "/dev": true,
 };
 export function isDeletablePath(p: unknown): p is string {
   if (!isDevicePath(p)) return false;
@@ -59,5 +68,5 @@ export function isDeletablePath(p: unknown): p is string {
 }
 
 export function isUsername(s: unknown): s is string {
-  return typeof s === "string" && /^[A-Za-z0-9._\-]{1,64}$/.test(s);
+  return typeof s === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(s);
 }

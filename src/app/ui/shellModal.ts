@@ -1,7 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
+import type { DeviceDescriptor, ShellClientMessage, ShellServerMessage } from "@common/protocol.ts";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import type { DeviceDescriptor, ShellClientMessage, ShellServerMessage } from "@common/protocol.ts";
 import { wsUrl } from "../api.ts";
 import { ConfirmModal } from "./confirm.ts";
 import { deviceDisplayName } from "./deviceCard.ts";
@@ -110,7 +110,14 @@ export class ShellModal extends Modal {
       this.close();
       return;
     }
-    void this.askChild(() => ConfirmModal.confirm("End shell session?", "The running shell and its processes will be terminated.", { ok: "End session", danger: true }), false).then((ok) => {
+    void this.askChild(
+      () =>
+        ConfirmModal.confirm("End shell session?", "The running shell and its processes will be terminated.", {
+          ok: "End session",
+          danger: true,
+        }),
+      false,
+    ).then((ok) => {
       if (ok) this.close();
     });
   }

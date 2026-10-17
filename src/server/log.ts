@@ -3,7 +3,7 @@ import type { Logger } from "./app.ts";
 
 type Level = "INFO" | "WARN" | "ERROR" | "DEBUG";
 
-const DEBUG_ENABLED = process.env["DEBUG"] === "1";
+const DEBUG_ENABLED = process.env.DEBUG === "1";
 
 function formatArg(a: unknown): string {
   if (a instanceof Error) return a.stack ?? a.message;
@@ -16,7 +16,7 @@ function formatArg(a: unknown): string {
 }
 
 function emit(tag: string, level: Level, msg: string, args: unknown[]): void {
-  const rest = args.length ? " " + args.map(formatArg).join(" ") : "";
+  const rest = args.length ? ` ${args.map(formatArg).join(" ")}` : "";
   const line = `${new Date().toISOString()} [${tag}] [${level}] ${msg}${rest}\n`;
   if (level === "WARN" || level === "ERROR") process.stderr.write(line);
   else process.stdout.write(line);

@@ -14,7 +14,8 @@ export function registerLabelRoutes(router: Router, stores: Stores): void {
     if (!isSerial(body?.serial)) throw new HttpError(400, "invalid serial");
     if (typeof body.label !== "string") throw new HttpError(400, "label required");
     const label = body.label.trim();
-    if (label.length > MAX_LABEL_LENGTH || /[\u0000-\u001f]/.test(label)) throw new HttpError(400, "invalid label");
+    if (label.length > MAX_LABEL_LENGTH || [...label].some((ch) => ch.charCodeAt(0) < 0x20))
+      throw new HttpError(400, "invalid label");
     stores.labels.set(body.serial, label);
     return jsonResponse(stores.labels.all());
   });

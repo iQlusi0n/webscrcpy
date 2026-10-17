@@ -16,6 +16,9 @@ export class LabelStore {
       this.db.run("DELETE FROM device_labels WHERE serial = ?", [serial]);
       return;
     }
-    this.db.run("INSERT INTO device_labels (serial, label) VALUES (?, ?) ON CONFLICT(serial) DO UPDATE SET label = excluded.label", [serial, label]);
+    this.db.run(
+      "INSERT INTO device_labels (serial, label) VALUES (?, ?) ON CONFLICT(serial) DO UPDATE SET label = excluded.label",
+      [serial, label],
+    );
   }
 }

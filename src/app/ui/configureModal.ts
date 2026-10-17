@@ -4,7 +4,7 @@ import type { AudioCodec, AudioSource, VideoCodec } from "@common/scrcpy.ts";
 import { api, errorMessage, wsUrl } from "../api.ts";
 import { encoderMatchesCodec, isSoftwareEncoder } from "../stream/codec.ts";
 import { deviceDisplayName } from "./deviceCard.ts";
-import { Modal, button } from "./modal.ts";
+import { button, Modal } from "./modal.ts";
 import { StreamModal } from "./streamModal.ts";
 
 const VIDEO_CODEC_ORDER: VideoCodec[] = ["h265", "h264", "av1", "vp8", "vp9"];
@@ -55,7 +55,6 @@ function audioCodecOf(encoder: string): AudioCodec | null {
   return null;
 }
 
-
 async function decodableCodecs(width: number, height: number): Promise<VideoCodec[]> {
   if (typeof VideoDecoder !== "function") return [];
   const out: VideoCodec[] = [];
@@ -98,7 +97,9 @@ function probe(serial: string): Promise<ProbeResult> {
 }
 
 function fmtBitrate(bps: number): string {
-  return bps >= 1_000_000 ? `${(bps / 1_000_000).toFixed(1).replace(/\.0$/, "")} Mbps` : `${Math.round(bps / 1000)} kbps`;
+  return bps >= 1_000_000
+    ? `${(bps / 1_000_000).toFixed(1).replace(/\.0$/, "")} Mbps`
+    : `${Math.round(bps / 1000)} kbps`;
 }
 
 function labeled(label: string, control: HTMLElement): HTMLDivElement {
@@ -122,7 +123,12 @@ function select<T extends string>(options: { value: T; label: string }[]): HTMLS
   return s;
 }
 
-function slider(min: number, max: number, step: number, format: (v: number) => string): { row: HTMLDivElement; input: HTMLInputElement } {
+function slider(
+  min: number,
+  max: number,
+  step: number,
+  format: (v: number) => string,
+): { row: HTMLDivElement; input: HTMLInputElement } {
   const row = document.createElement("div");
   row.className = "field-row";
   const input = document.createElement("input");
@@ -245,7 +251,10 @@ export class ConfigureModal extends Modal {
 
   private async load(): Promise<void> {
     try {
-      const [probeResult, saved] = await Promise.all([probe(this.device.serial), api.settings.device(this.device.serial)]);
+      const [probeResult, saved] = await Promise.all([
+        probe(this.device.serial),
+        api.settings.device(this.device.serial),
+      ]);
       if (this.closeStarted) return;
       this.probeResult = probeResult;
       this.saved = saved;
@@ -279,7 +288,9 @@ export class ConfigureModal extends Modal {
     for (const c of codecs) this.videoCodec.add(new Option(c, c));
 
     const audioEncoders = this.probeResult?.audioEncoders ?? [];
-    const audioCodecs = AUDIO_CODEC_ORDER.filter((c) => c === "raw" || audioEncoders.some((e) => audioCodecOf(e) === c));
+    const audioCodecs = AUDIO_CODEC_ORDER.filter(
+      (c) => c === "raw" || audioEncoders.some((e) => audioCodecOf(e) === c),
+    );
     this.audioCodec.replaceChildren();
     for (const c of audioCodecs) this.audioCodec.add(new Option(c, c));
 
@@ -327,7 +338,8 @@ export class ConfigureModal extends Modal {
     this.bitrate.input.dispatchEvent(new Event("input"));
     this.audioEnabled.input.checked = this.sdk >= 30 && (s.audioEnabled ?? DEFAULTS.audioEnabled);
     const audioCodecs = [...this.audioCodec.options].map((o) => o.value as AudioCodec);
-    this.audioCodec.value = s.audioCodec && audioCodecs.includes(s.audioCodec) ? s.audioCodec : (audioCodecs[0] ?? DEFAULTS.audioCodec);
+    this.audioCodec.value =
+      s.audioCodec && audioCodecs.includes(s.audioCodec) ? s.audioCodec : (audioCodecs[0] ?? DEFAULTS.audioCodec);
     const sources = [...this.audioSource.options].map((o) => o.value as AudioSource);
     this.audioSource.value = s.audioSource && sources.includes(s.audioSource) ? s.audioSource : DEFAULTS.audioSource;
     this.iFrameInterval.value = String(s.iFrameInterval ?? DEFAULTS.iFrameInterval);

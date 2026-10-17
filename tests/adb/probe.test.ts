@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseDumpsysEncoders, parseScrcpyEncoderList, parseWmDensity, parseWmSize } from "../../src/server/adb/probe.ts";
+import {
+  parseDumpsysEncoders,
+  parseScrcpyEncoderList,
+  parseWmDensity,
+  parseWmSize,
+} from "../../src/server/adb/probe.ts";
 import { parseScreenStateOutput } from "../../src/server/adb/routes.ts";
 import { classifyKind, parseDeviceDetails, parseScreenState } from "../../src/server/adb/tracker.ts";
 
@@ -52,15 +57,40 @@ describe("device details", () => {
   });
 
   test("parseDeviceDetails splits the combined getprop output", () => {
-    const out = ["Google", "::", "Pixel 8", "::", "14", "::", "34", "::", "nosdcard", "::", "false", "::", "Physical size: 1080x2400", "::", "Physical density: 420"].join("\n");
-    expect(parseDeviceDetails(out)).toEqual({ manufacturer: "Google", model: "Pixel 8", androidVersion: "14", sdk: 34, kind: "phone" });
+    const out = [
+      "Google",
+      "::",
+      "Pixel 8",
+      "::",
+      "14",
+      "::",
+      "34",
+      "::",
+      "nosdcard",
+      "::",
+      "false",
+      "::",
+      "Physical size: 1080x2400",
+      "::",
+      "Physical density: 420",
+    ].join("\n");
+    expect(parseDeviceDetails(out)).toEqual({
+      manufacturer: "Google",
+      model: "Pixel 8",
+      androidVersion: "14",
+      sdk: 34,
+      kind: "phone",
+    });
   });
 
   test("screen state parsers", () => {
     expect(parseScreenState("  mWakefulness=Awake")).toBe("awake");
     expect(parseScreenState("mWakefulness=Dozing")).toBe("asleep");
     expect(parseScreenState("")).toBe("unknown");
-    expect(parseScreenStateOutput("mWakefulness=Awake\n isKeyguardShowing=true")).toEqual({ awake: true, locked: true });
+    expect(parseScreenStateOutput("mWakefulness=Awake\n isKeyguardShowing=true")).toEqual({
+      awake: true,
+      locked: true,
+    });
     expect(parseScreenStateOutput("")).toEqual({ awake: true, locked: false });
     expect(parseScreenStateOutput("mWakefulness=Asleep")).toEqual({ awake: false, locked: false });
   });

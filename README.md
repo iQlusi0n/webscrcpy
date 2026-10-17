@@ -20,6 +20,7 @@ Inspired by [ws-scrcpy-web](https://github.com/bilbospocketses/ws-scrcpy-web) (b
 bun install
 bun run dev                      # builds the web bundle, runs the server with reload
 bun run build                    # dist/webscrcpy single-file executable (+ dist/public)
+bun run check                    # biome lint + tsc + bun test
 ```
 
 ## Configuration

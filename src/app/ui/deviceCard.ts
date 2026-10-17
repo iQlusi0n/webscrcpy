@@ -3,7 +3,7 @@ import { api, errorMessage } from "../api.ts";
 import { ConfigureModal } from "./configureModal.ts";
 import { streamBlockedReason } from "./context.ts";
 import { FilesModal } from "./filesModal.ts";
-import { icon, type IconName } from "./icons.ts";
+import { type IconName, icon } from "./icons.ts";
 import { button, iconButton } from "./modal.ts";
 import { ShellModal } from "./shellModal.ts";
 import { StreamModal } from "./streamModal.ts";
@@ -99,7 +99,7 @@ export class DeviceCard {
 
   update(device: DeviceDescriptor): void {
     this.device = device;
-    this.el.dataset["state"] = device.state;
+    this.el.dataset.state = device.state;
     if (!this.editing) this.nameEl.textContent = deviceDisplayName(device);
     this.nameEl.title = device.label ? `${device.label} (${deviceModelText(device) || device.serial})` : "";
     this.kindEl.textContent = "";

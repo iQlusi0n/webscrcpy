@@ -26,15 +26,20 @@ const ICONS: Record<string, string> = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
   overview: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
-  screenshot: '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/>',
-  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
+  screenshot:
+    '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/>',
+  keyboard:
+    '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
   uhid: '<rect x="8" y="2" width="8" height="20" rx="4"/><path d="M12 2v6M8 8h8"/>',
   stats: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   dpad: '<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 3v5h-5"/>',
-  clipboardGet: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V2h6v2"/><path d="M12 9v8M9 14l3 3 3-3"/>',
-  clipboardSet: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V2h6v2"/><path d="M12 17V9M9 12l3-3 3 3"/>',
-  rotate: '<rect x="4" y="4" width="10" height="16" rx="2"/><path d="M17 8a4 4 0 0 1 4 4v4"/><path d="M19 14l2 2 2-2"/>',
+  clipboardGet:
+    '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V2h6v2"/><path d="M12 9v8M9 14l3 3 3-3"/>',
+  clipboardSet:
+    '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V2h6v2"/><path d="M12 17V9M9 12l3-3 3 3"/>',
+  rotate:
+    '<rect x="4" y="4" width="10" height="16" rx="2"/><path d="M17 8a4 4 0 0 1 4 4v4"/><path d="M19 14l2 2 2-2"/>',
   notifications: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
 };
 
@@ -46,7 +51,10 @@ export class Toolbar {
   readonly element: HTMLElement;
   private readonly toggles: Record<ToggleName, HTMLButtonElement>;
 
-  constructor(initial: ToolbarToggles, private readonly cb: ToolbarCallbacks) {
+  constructor(
+    initial: ToolbarToggles,
+    private readonly cb: ToolbarCallbacks,
+  ) {
     this.element = document.createElement("div");
     this.element.className = "stream-toolbar";
     this.element.setAttribute("role", "toolbar");

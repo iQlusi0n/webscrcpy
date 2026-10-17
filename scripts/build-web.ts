@@ -1,6 +1,7 @@
 // Bundles the browser app into dist/public. Run with --watch for rebuild-on-change.
-import { rm, mkdir, cp } from "node:fs/promises";
+
 import { watch } from "node:fs";
+import { cp, mkdir, rm } from "node:fs/promises";
 
 const watchMode = process.argv.includes("--watch");
 const outdir = "dist/public";

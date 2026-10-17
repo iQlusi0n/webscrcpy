@@ -6,7 +6,8 @@ import { SESSION_COOKIE } from "../../src/server/auth/session.ts";
 import { createStores, openDatabase } from "../../src/server/db/index.ts";
 
 const baseConfig: AppConfig = { port: 8000, dataRoot: "/tmp", docker: false, allowedHosts: [], frameAncestors: [] };
-const reqWith = (token?: string): Request => new Request("http://localhost/", { headers: token ? { cookie: `${SESSION_COOKIE}=${token}` } : {} });
+const reqWith = (token?: string): Request =>
+  new Request("http://localhost/", { headers: token ? { cookie: `${SESSION_COOKIE}=${token}` } : {} });
 
 describe("AuthService", () => {
   test("mode off: auth gate is open, login refused", () => {
@@ -35,7 +36,10 @@ describe("AuthService", () => {
   });
 
   test("env password wins and cannot be changed", () => {
-    const auth = new AuthService(createStores(openDatabase(":memory:")), { ...baseConfig, authPasswordFromEnv: "from-env-pw" });
+    const auth = new AuthService(createStores(openDatabase(":memory:")), {
+      ...baseConfig,
+      authPasswordFromEnv: "from-env-pw",
+    });
     expect(auth.fromEnv).toBe(true);
     expect(auth.login("from-env-pw").ok).toBe(true);
     expect(() => auth.setPassword("other")).toThrow();

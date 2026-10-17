@@ -1,10 +1,10 @@
 import "./ui/theme.css";
 import "./ui/app.css";
+import type { UserSettings } from "@common/api.ts";
 import { api, errorMessage, onUnauthorized } from "./api.ts";
 import { AppContext, applyTheme } from "./ui/context.ts";
 import { renderHome } from "./ui/home.ts";
 import { renderLogin } from "./ui/loginView.ts";
-import type { UserSettings } from "@common/api.ts";
 
 // First paint follows the OS preference; the saved theme overrides it once settings load.
 applyTheme(matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");

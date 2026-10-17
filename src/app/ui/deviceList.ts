@@ -1,8 +1,9 @@
+import type { ConfigResponse } from "@common/api.ts";
 import type { DeviceDescriptor, DeviceListMessage } from "@common/protocol.ts";
 import { WsClose } from "@common/protocol.ts";
 import { api, wsUrl } from "../api.ts";
-import { DeviceCard } from "./deviceCard.ts";
 import type { AppContext } from "./context.ts";
+import { DeviceCard } from "./deviceCard.ts";
 
 export interface DeviceListElements {
   grid: HTMLElement;
@@ -73,7 +74,7 @@ export class DeviceList {
    * rate-limited to avoid loops.
    */
   private async checkSession(): Promise<void> {
-    let cfg;
+    let cfg: ConfigResponse;
     try {
       cfg = await api.config();
     } catch {

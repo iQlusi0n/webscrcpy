@@ -3,7 +3,7 @@
  * Supports parent/child stacking: children close with their parent, and `askChild` returns a
  * fallback when the parent closes before the child answers.
  */
-import { icon, type IconName } from "./icons.ts";
+import { type IconName, icon } from "./icons.ts";
 
 export interface ModalOptions {
   title: string;

@@ -6,7 +6,7 @@
 import { KeyAction } from "@common/scrcpy.ts";
 import { injectKeycode, injectText } from "../control.ts";
 import { CODE_TO_KEYCODE, metaStateOf } from "./keycodes.ts";
-import { isTextEntry, textForKey, type SendControl } from "./text.ts";
+import { isTextEntry, type SendControl, textForKey } from "./text.ts";
 
 export interface KeyboardInputOptions {
   send: SendControl;

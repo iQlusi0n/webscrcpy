@@ -2,12 +2,20 @@
  * `/ws/shell?serial=…` — device-side PTY over `shell,v2,pty:` (D10). Binary frames are raw
  * terminal bytes in both directions; text frames carry ShellClientMessage / ShellServerMessage.
  */
-import { AdbShellProtocolPtyProcess, type AdbNoneProtocolPtyProcess } from "@yume-chan/adb";
-import type { WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
-import { WsClose, type ShellClientMessage, type ShellServerMessage } from "@common/protocol.ts";
+
+import { type ShellClientMessage, type ShellServerMessage, WsClose } from "@common/protocol.ts";
 import { isSerial, parseIntInRange } from "@common/validate.ts";
-import { HttpError, type AppRouter, type AppServices, type AppSocket, type Logger, type RequestContext } from "../app.ts";
-import { describe, type AdbService } from "./service.ts";
+import { type AdbNoneProtocolPtyProcess, AdbShellProtocolPtyProcess } from "@yume-chan/adb";
+import type { WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
+import {
+  type AppRouter,
+  type AppServices,
+  type AppSocket,
+  HttpError,
+  type Logger,
+  type RequestContext,
+} from "../app.ts";
+import { type AdbService, describe } from "./service.ts";
 import { closeWith } from "./ws.ts";
 
 const TERMINAL_TYPE = "xterm-256color";
@@ -34,7 +42,14 @@ function parseClientMessage(text: string): ShellClientMessage | undefined {
   return { type, cols: c, rows: r };
 }
 
-async function startPty(ws: AppSocket, state: ShellState, service: AdbService, cols: number, rows: number, log: Logger): Promise<void> {
+async function startPty(
+  ws: AppSocket,
+  state: ShellState,
+  service: AdbService,
+  cols: number,
+  rows: number,
+  log: Logger,
+): Promise<void> {
   const adb = await service.getAdb(state.serial);
   if (state.closed) return;
   const shellProtocol = adb.subprocess.shellProtocol;
@@ -108,7 +123,8 @@ export function registerShell(router: AppRouter, service: AdbService, services: 
             closeWith(ws, WsClose.SESSION_FAILED, describe(error));
           });
         } else {
-          if (state.pty instanceof AdbShellProtocolPtyProcess) void state.pty.resize(message.rows, message.cols).catch(() => undefined);
+          if (state.pty instanceof AdbShellProtocolPtyProcess)
+            void state.pty.resize(message.rows, message.cols).catch(() => undefined);
         }
       },
       close(ws: AppSocket) {

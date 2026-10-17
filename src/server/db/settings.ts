@@ -23,7 +23,9 @@ export class SettingsStore {
 
   /** Merges `patch`; a key whose value is `null` or `undefined` is removed. */
   patchUserSettings(patch: Record<string, unknown>): UserSettings {
-    const upsert = this.db.query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    const upsert = this.db.query(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    );
     const del = this.db.query("DELETE FROM settings WHERE key = ?");
     this.db.transaction(() => {
       for (const [key, value] of Object.entries(patch)) {
@@ -41,7 +43,9 @@ export class SettingsStore {
   // ---- per-device stream settings
 
   getDeviceSettings(serial: string): DeviceStreamSettings {
-    const row = this.db.query<{ value: string }, [string]>("SELECT value FROM device_settings WHERE serial = ?").get(serial);
+    const row = this.db
+      .query<{ value: string }, [string]>("SELECT value FROM device_settings WHERE serial = ?")
+      .get(serial);
     return row ? (JSON.parse(row.value) as DeviceStreamSettings) : {};
   }
 
@@ -50,10 +54,10 @@ export class SettingsStore {
       this.db.run("DELETE FROM device_settings WHERE serial = ?", [serial]);
       return;
     }
-    this.db.run("INSERT INTO device_settings (serial, value) VALUES (?, ?) ON CONFLICT(serial) DO UPDATE SET value = excluded.value", [
-      serial,
-      JSON.stringify(value),
-    ]);
+    this.db.run(
+      "INSERT INTO device_settings (serial, value) VALUES (?, ?) ON CONFLICT(serial) DO UPDATE SET value = excluded.value",
+      [serial, JSON.stringify(value)],
+    );
   }
 
   // ---- app settings
@@ -69,9 +73,9 @@ export class SettingsStore {
       this.db.run("DELETE FROM app_settings WHERE key = ?", [key]);
       return;
     }
-    this.db.run("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [
-      key,
-      JSON.stringify(value),
-    ]);
+    this.db.run(
+      "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      [key, JSON.stringify(value)],
+    );
   }
 }

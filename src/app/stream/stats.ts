@@ -51,6 +51,6 @@ export class StatsOverlay {
     ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
     ctx.fillRect(pad, pad, boxW + pad * 2, lines.length * lineH + pad * 2);
     ctx.fillStyle = "#fff";
-    lines.forEach((line, i) => ctx.fillText(line, pad * 2, pad * 2 + i * lineH));
+    for (const [i, line] of lines.entries()) ctx.fillText(line, pad * 2, pad * 2 + i * lineH);
   }
 }

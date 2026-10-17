@@ -21,6 +21,8 @@ export type VideoCodec = "h264" | "h265" | "av1" | "vp8" | "vp9";
 export type AudioCodec = "opus" | "aac" | "flac" | "raw";
 export type AudioSource = "output" | "mic" | "playback";
 
+/** FourCC codec ids as written on the wire (SCRCPY_PROTOCOL.md §3.1); hex keeps the ASCII visible. */
+// biome-ignore-start lint/complexity/useSimpleNumberKeys: hex FourCC values are the spec
 export const VIDEO_CODEC_IDS: Record<number, VideoCodec> = {
   0x68323634: "h264",
   0x68323635: "h265",
@@ -34,6 +36,7 @@ export const AUDIO_CODEC_IDS: Record<number, AudioCodec> = {
   0x666c6163: "flac",
   0x00726177: "raw",
 };
+// biome-ignore-end lint/complexity/useSimpleNumberKeys: hex FourCC values are the spec
 /** Audio socket may open with one of these instead of a codec id. */
 export const AUDIO_DISABLED = 0x00000000;
 export const AUDIO_ERROR = 0x00000001;

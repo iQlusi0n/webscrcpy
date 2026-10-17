@@ -3,11 +3,11 @@ import { SCRCPY_DEVICE_PATH, SCRCPY_SERVER_CLASS } from "@common/scrcpy.ts";
 import {
   buildServerCommand,
   chooseAudioCodec,
+  type LaunchOptions,
   parseStreamQuery,
   randomScid,
-  serializeServerOptions,
-  type LaunchOptions,
   type StreamOptions,
+  serializeServerOptions,
 } from "../../src/server/adb/options.ts";
 
 const base: StreamOptions = {
@@ -23,7 +23,14 @@ const base: StreamOptions = {
 };
 
 function launch(overrides: Partial<LaunchOptions> = {}, video: Partial<StreamOptions> = {}): LaunchOptions {
-  return { scid: "0000abcd", tunnelForward: false, cleanup: true, video: { ...base, ...video }, audioCodec: "opus", ...overrides };
+  return {
+    scid: "0000abcd",
+    tunnelForward: false,
+    cleanup: true,
+    video: { ...base, ...video },
+    audioCodec: "opus",
+    ...overrides,
+  };
 }
 
 describe("parseStreamQuery", () => {
@@ -54,7 +61,9 @@ describe("parseStreamQuery", () => {
       videoCodecOptions: "i-frame-interval:int=2,profile=8",
     });
     const unsafe = parseStreamQuery(
-      new URLSearchParams("serial=X&videoCodec=mpeg&maxSize=-1&bitrate=1&videoEncoder=a%20b;rm&videoCodecOptions=x%20y"),
+      new URLSearchParams(
+        "serial=X&videoCodec=mpeg&maxSize=-1&bitrate=1&videoEncoder=a%20b;rm&videoCodecOptions=x%20y",
+      ),
     );
     expect(unsafe).toEqual({ ...base, serial: "X" });
   });
@@ -67,7 +76,10 @@ describe("serializeServerOptions", () => {
 
   test("emits only non-default keys", () => {
     const args = serializeServerOptions(
-      launch({ audioCodec: "aac", tunnelForward: true, cleanup: false }, { videoCodec: "h265", maxSize: 1280, bitrate: 2_000_000, maxFps: 30, displayId: 2, audioSource: "mic" }),
+      launch(
+        { audioCodec: "aac", tunnelForward: true, cleanup: false },
+        { videoCodec: "h265", maxSize: 1280, bitrate: 2_000_000, maxFps: 30, displayId: 2, audioSource: "mic" },
+      ),
     );
     expect(args).toEqual([
       "scid=0000abcd",
@@ -90,17 +102,31 @@ describe("serializeServerOptions", () => {
   });
 
   test("encoder name and codec options pass through only when allowlisted", () => {
-    expect(serializeServerOptions(launch({}, { videoEncoder: "OMX.qcom.video.encoder.avc", videoCodecOptions: "profile=8" }))).toEqual([
+    expect(
+      serializeServerOptions(
+        launch({}, { videoEncoder: "OMX.qcom.video.encoder.avc", videoCodecOptions: "profile=8" }),
+      ),
+    ).toEqual([
       "scid=0000abcd",
       "log_level=info",
       "video_encoder=OMX.qcom.video.encoder.avc",
       "video_codec_options=profile=8",
     ]);
-    expect(serializeServerOptions(launch({}, { videoEncoder: "bad name", videoCodecOptions: "a b" }))).toEqual(["scid=0000abcd", "log_level=info"]);
+    expect(serializeServerOptions(launch({}, { videoEncoder: "bad name", videoCodecOptions: "a b" }))).toEqual([
+      "scid=0000abcd",
+      "log_level=info",
+    ]);
   });
 
   test("buildServerCommand prefixes CLASSPATH/app_process/class/version", () => {
-    expect(buildServerCommand(["scid=1"])).toEqual([`CLASSPATH=${SCRCPY_DEVICE_PATH}`, "app_process", "/", SCRCPY_SERVER_CLASS, "5.0", "scid=1"]);
+    expect(buildServerCommand(["scid=1"])).toEqual([
+      `CLASSPATH=${SCRCPY_DEVICE_PATH}`,
+      "app_process",
+      "/",
+      SCRCPY_SERVER_CLASS,
+      "5.0",
+      "scid=1",
+    ]);
   });
 
   test("randomScid is 8 hex digits with bit 31 clear", () => {

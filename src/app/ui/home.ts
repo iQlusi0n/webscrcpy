@@ -1,5 +1,5 @@
 import { api, errorMessage } from "../api.ts";
-import { currentTheme, streamBlockedReason, type AppContext } from "./context.ts";
+import { type AppContext, currentTheme, streamBlockedReason } from "./context.ts";
 import { DeviceList } from "./deviceList.ts";
 import { icon } from "./icons.ts";
 import { button, iconButton } from "./modal.ts";
@@ -102,7 +102,8 @@ export function renderHome(root: HTMLElement, ctx: AppContext): () => void {
   grid.className = "device-grid";
   const empty = document.createElement("div");
   empty.className = "empty-state";
-  empty.textContent = "No devices. Plug in a phone with USB debugging enabled, or connect to a wireless device by address above.";
+  empty.textContent =
+    "No devices. Plug in a phone with USB debugging enabled, or connect to a wireless device by address above.";
 
   main.append(adbBanner, authBanner, insecure, toolbar, grid, empty);
   root.append(header, main);

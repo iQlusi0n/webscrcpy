@@ -42,6 +42,7 @@ a {
 }
 
 .hidden {
+  /* biome-ignore lint/complexity/noImportantStyles: utility class must defeat component display values */
   display: none !important;
 }
 
@@ -359,7 +360,7 @@ a {
   flex: 1;
 }
 
-.device-card .name-row .input {
+.name-row .input {
   flex: 1;
 }
 

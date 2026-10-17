@@ -3,11 +3,11 @@
  * Pure functions over Uint8Array; no DOM, no state.
  */
 import {
-  ControlMsg,
   CONTROL_MSG_MAX_SIZE,
-  INJECT_TEXT_MAX_LENGTH,
+  ControlMsg,
   floatToI16FP,
   floatToU16FP,
+  INJECT_TEXT_MAX_LENGTH,
 } from "@common/scrcpy.ts";
 
 const textEncoder = new TextEncoder();
@@ -58,7 +58,7 @@ export function encodeUtf8Bounded(text: string, maxBytes: number): Uint8Array {
   const full = textEncoder.encode(text);
   if (full.length <= maxBytes) return full;
   let end = maxBytes;
-  while (end > 0 && (full[end]! & 0xc0) === 0x80) end--;
+  while (end > 0 && ((full[end] ?? 0) & 0xc0) === 0x80) end--;
   return full.subarray(0, end);
 }
 

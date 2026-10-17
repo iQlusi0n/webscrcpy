@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { SCHEMA_VERSION, migrate } from "../../src/server/db/migrations.ts";
+import { describe, expect, test } from "bun:test";
 import { createStores, openDatabase } from "../../src/server/db/index.ts";
+import { migrate, SCHEMA_VERSION } from "../../src/server/db/migrations.ts";
 
 describe("migrations", () => {
   test("run twice idempotently", () => {

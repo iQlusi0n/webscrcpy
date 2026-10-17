@@ -2,10 +2,8 @@
  * `/ws/stream?serial=…` — one scrcpy-server session per socket: push jar, tunnel, launch,
  * demux video/audio/control into channel-prefixed WebSocket frames (SCRCPY_PROTOCOL.md).
  */
-import type { Adb, AdbSocket } from "@yume-chan/adb";
-import type { AdbNoneProtocolProcess } from "@yume-chan/adb";
-import type { WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
-import { ChannelId, WsClose, type SessionChange, type StreamMetadata } from "@common/protocol.ts";
+
+import { ChannelId, type SessionChange, type StreamMetadata, WsClose } from "@common/protocol.ts";
 import {
   AUDIO_CODEC_IDS,
   AUDIO_DISABLED,
@@ -14,21 +12,37 @@ import {
   DEVICE_NAME_FIELD_LENGTH,
   VIDEO_CODEC_IDS,
 } from "@common/scrcpy.ts";
-import { HttpError, type AppRouter, type AppServices, type AppSocket, type Logger, type RequestContext } from "../app.ts";
+import type { Adb, AdbNoneProtocolProcess, AdbSocket } from "@yume-chan/adb";
+import type { WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
+import {
+  type AppRouter,
+  type AppServices,
+  type AppSocket,
+  HttpError,
+  type Logger,
+  type RequestContext,
+} from "../app.ts";
 import { CongestionController } from "./congestion.ts";
-import { buildJsonFrame, buildMediaFrame, decodeDeviceName, parseFrameHeader, readU32, SocketReader } from "./frames.ts";
+import {
+  buildJsonFrame,
+  buildMediaFrame,
+  decodeDeviceName,
+  parseFrameHeader,
+  readU32,
+  SocketReader,
+} from "./frames.ts";
 import { ensureServerJar } from "./jar.ts";
 import {
   buildServerCommand,
   chooseAudioCodec,
+  type LaunchOptions,
   parseStreamQuery,
   randomScid,
-  serializeServerOptions,
-  type LaunchOptions,
   type StreamOptions,
+  serializeServerOptions,
 } from "./options.ts";
 import { audioEncodersFor } from "./probe.ts";
-import { describe, type AdbService } from "./service.ts";
+import { type AdbService, describe } from "./service.ts";
 import { closeWith } from "./ws.ts";
 
 const ACCEPT_TIMEOUT_MS = 10_000;
@@ -122,7 +136,10 @@ class StreamSession {
       if (audioCodec !== undefined) {
         const encoders = await audioEncodersFor(this.service, serial, jarPath, this.log);
         const chosen = chooseAudioCodec(audioCodec, encoders);
-        if (chosen !== audioCodec) this.log.info(`${serial}: audio codec ${audioCodec} → ${chosen ?? "disabled"} (encoders: ${encoders.join(", ")})`);
+        if (chosen !== audioCodec)
+          this.log.info(
+            `${serial}: audio codec ${audioCodec} → ${chosen ?? "disabled"} (encoders: ${encoders.join(", ")})`,
+          );
         audioCodec = chosen;
       }
       if (this.released) return;
@@ -159,7 +176,9 @@ class StreamSession {
         this.fail("scrcpy-server exited");
       });
 
-      const sockets = launch.tunnelForward ? await this.connectForward(adb, this.tunnelName, expected) : await this.acceptReverse(expected);
+      const sockets = launch.tunnelForward
+        ? await this.connectForward(adb, this.tunnelName, expected)
+        : await this.acceptReverse(expected);
       if (this.released) {
         for (const socket of sockets) void socket.close();
         return;
@@ -183,9 +202,15 @@ class StreamSession {
       if (this.released) return;
 
       const audioCodecName: StreamMetadata["audioCodec"] =
-        audioHeader === AUDIO_DISABLED ? "disabled" : audioHeader === AUDIO_ERROR ? "error" : (AUDIO_CODEC_IDS[audioHeader] ?? "error");
+        audioHeader === AUDIO_DISABLED
+          ? "disabled"
+          : audioHeader === AUDIO_ERROR
+            ? "error"
+            : (AUDIO_CODEC_IDS[audioHeader] ?? "error");
       if (audio && audioHeader !== AUDIO_DISABLED && AUDIO_CODEC_IDS[audioHeader] === undefined) {
-        this.log.warn(`${serial}: audio socket opened with ${audioHeader === AUDIO_ERROR ? "config error" : `unknown codec id 0x${audioHeader.toString(16)}`}`);
+        this.log.warn(
+          `${serial}: audio socket opened with ${audioHeader === AUDIO_ERROR ? "config error" : `unknown codec id 0x${audioHeader.toString(16)}`}`,
+        );
       }
       const metadata: StreamMetadata = {
         deviceName,
@@ -196,7 +221,9 @@ class StreamSession {
       };
       if (this.options.videoEncoder !== undefined) metadata.videoEncoder = this.options.videoEncoder;
       this.ws.send(buildJsonFrame(ChannelId.METADATA, metadata));
-      this.log.info(`${serial}: stream up (${deviceName}, ${metadata.videoCodec} ${this.width}x${this.height}, audio ${audioCodecName})`);
+      this.log.info(
+        `${serial}: stream up (${deviceName}, ${metadata.videoCodec} ${this.width}x${this.height}, audio ${audioCodecName})`,
+      );
 
       this.controlWriter = controlSocket.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
       this.armStallTimer();
@@ -319,7 +346,11 @@ class StreamSession {
       if (header.kind === "session") throw new Error("session packet on audio socket");
       const sizeBytes = await audio.read(4);
       const payload = await audio.read(readU32(sizeBytes));
-      const decision = this.congestion.decide(this.ws.getBufferedAmount(), { channel: "audio", config: header.config, keyframe: false });
+      const decision = this.congestion.decide(this.ws.getBufferedAmount(), {
+        channel: "audio",
+        config: header.config,
+        keyframe: false,
+      });
       if (decision.event) this.logCongestion(decision.event);
       if (decision.reset) this.writeControl(RESET_VIDEO_MSG);
       if (decision.send) this.ws.send(buildMediaFrame(ChannelId.AUDIO, head, sizeBytes, payload));
@@ -340,8 +371,10 @@ class StreamSession {
 
   private logCongestion(event: "congested" | "drained" | "resumed"): void {
     const buffered = this.ws.getBufferedAmount();
-    if (event === "congested") this.log.warn(`${this.options.serial}: browser congested (${buffered} B buffered), shedding media`);
-    else if (event === "drained") this.log.info(`${this.options.serial}: drained to ${buffered} B, requesting keyframe`);
+    if (event === "congested")
+      this.log.warn(`${this.options.serial}: browser congested (${buffered} B buffered), shedding media`);
+    else if (event === "drained")
+      this.log.info(`${this.options.serial}: drained to ${buffered} B, requesting keyframe`);
     else this.log.info(`${this.options.serial}: resumed after dropping ${this.congestion.dropped} packets`);
   }
 
@@ -349,7 +382,9 @@ class StreamSession {
     this.stallTimer = setTimeout(() => {
       if (this.gotConfig || this.released) return;
       this.stallResets += 1;
-      this.log.warn(`${this.options.serial}: no config packet after ${STALL_TIMEOUT_MS / 1000} s, RESET_VIDEO (${this.stallResets}/${STALL_MAX_RESETS})`);
+      this.log.warn(
+        `${this.options.serial}: no config packet after ${STALL_TIMEOUT_MS / 1000} s, RESET_VIDEO (${this.stallResets}/${STALL_MAX_RESETS})`,
+      );
       this.writeControl(RESET_VIDEO_MSG);
       if (this.stallResets < STALL_MAX_RESETS) {
         this.stallTimer = setTimeout(() => this.armStallTimerRetry(), STALL_RETRY_MS);
@@ -360,9 +395,12 @@ class StreamSession {
   private armStallTimerRetry(): void {
     if (this.gotConfig || this.released) return;
     this.stallResets += 1;
-    this.log.warn(`${this.options.serial}: still no config packet, RESET_VIDEO (${this.stallResets}/${STALL_MAX_RESETS})`);
+    this.log.warn(
+      `${this.options.serial}: still no config packet, RESET_VIDEO (${this.stallResets}/${STALL_MAX_RESETS})`,
+    );
     this.writeControl(RESET_VIDEO_MSG);
-    if (this.stallResets < STALL_MAX_RESETS) this.stallTimer = setTimeout(() => this.armStallTimerRetry(), STALL_RETRY_MS);
+    if (this.stallResets < STALL_MAX_RESETS)
+      this.stallTimer = setTimeout(() => this.armStallTimerRetry(), STALL_RETRY_MS);
   }
 
   /** Browser CONTROL frame payload (channel byte already stripped) → control socket. */
@@ -385,7 +423,8 @@ class StreamSession {
     clearTimeout(this.stallTimer);
     void this.controlWriter?.close().catch(() => undefined);
     for (const reader of this.readers) void reader.cancel();
-    for (const socket of [...this.sockets, ...this.incoming.drain()]) void Promise.resolve(socket.close()).catch(() => undefined);
+    for (const socket of [...this.sockets, ...this.incoming.drain()])
+      void Promise.resolve(socket.close()).catch(() => undefined);
     const { adb, tunnelName, process } = this;
     if (adb && tunnelName && this.reverseAdded) void adb.reverse.remove(tunnelName).catch(() => undefined);
     if (process) void Promise.resolve(process.kill()).catch(() => undefined);
@@ -427,7 +466,9 @@ export function registerStream(router: AppRouter, service: AdbService, services:
       message(ws: AppSocket, data: string | Buffer) {
         if (typeof data === "string") return;
         if (data.byteLength < 2 || data[0] !== ChannelId.CONTROL) return;
-        (ws.data.state as StreamSession).writeControl(new Uint8Array(data.buffer, data.byteOffset + 1, data.byteLength - 1));
+        (ws.data.state as StreamSession).writeControl(
+          new Uint8Array(data.buffer, data.byteOffset + 1, data.byteLength - 1),
+        );
       },
       close(ws: AppSocket) {
         const session = ws.data.state;

@@ -46,9 +46,14 @@ export function parseStreamQuery(params: URLSearchParams): StreamOptions | undef
   const videoCodecOptions = params.get("videoCodecOptions");
   const options: StreamOptions = {
     serial,
-    videoCodec: videoCodec !== null && VIDEO_CODEC_SET[videoCodec] ? (videoCodec as VideoCodec) : STREAM_DEFAULTS.videoCodec,
-    audioCodec: audioCodec !== null && AUDIO_CODEC_SET[audioCodec] ? (audioCodec as AudioCodec) : STREAM_DEFAULTS.audioCodec,
-    audioSource: audioSource !== null && AUDIO_SOURCE_SET[audioSource] ? (audioSource as AudioSource) : STREAM_DEFAULTS.audioSource,
+    videoCodec:
+      videoCodec !== null && VIDEO_CODEC_SET[videoCodec] ? (videoCodec as VideoCodec) : STREAM_DEFAULTS.videoCodec,
+    audioCodec:
+      audioCodec !== null && AUDIO_CODEC_SET[audioCodec] ? (audioCodec as AudioCodec) : STREAM_DEFAULTS.audioCodec,
+    audioSource:
+      audioSource !== null && AUDIO_SOURCE_SET[audioSource]
+        ? (audioSource as AudioSource)
+        : STREAM_DEFAULTS.audioSource,
     audio: params.get("audio") !== "false",
     maxSize: parseIntInRange(params.get("maxSize") ?? undefined, 0, 7680) ?? STREAM_DEFAULTS.maxSize,
     bitrate: parseIntInRange(params.get("bitrate") ?? undefined, 100_000, 200_000_000) ?? STREAM_DEFAULTS.bitrate,
@@ -78,12 +83,14 @@ export function serializeServerOptions(launch: LaunchOptions): string[] {
   if (audioCodec === undefined) args.push("audio=false");
   if (video.videoCodec !== STREAM_DEFAULTS.videoCodec) args.push(`video_codec=${video.videoCodec}`);
   if (audioCodec !== undefined && audioCodec !== STREAM_DEFAULTS.audioCodec) args.push(`audio_codec=${audioCodec}`);
-  if (audioCodec !== undefined && video.audioSource !== STREAM_DEFAULTS.audioSource) args.push(`audio_source=${video.audioSource}`);
+  if (audioCodec !== undefined && video.audioSource !== STREAM_DEFAULTS.audioSource)
+    args.push(`audio_source=${video.audioSource}`);
   if (video.maxSize !== STREAM_DEFAULTS.maxSize) args.push(`max_size=${video.maxSize}`);
   if (video.bitrate !== STREAM_DEFAULTS.bitrate) args.push(`video_bit_rate=${video.bitrate}`);
   if (video.maxFps !== STREAM_DEFAULTS.maxFps) args.push(`max_fps=${video.maxFps}`);
   if (video.displayId !== STREAM_DEFAULTS.displayId) args.push(`display_id=${video.displayId}`);
-  if (video.videoEncoder !== undefined && isEncoderName(video.videoEncoder)) args.push(`video_encoder=${video.videoEncoder}`);
+  if (video.videoEncoder !== undefined && isEncoderName(video.videoEncoder))
+    args.push(`video_encoder=${video.videoEncoder}`);
   if (video.videoCodecOptions !== undefined && isCodecOptions(video.videoCodecOptions)) {
     args.push(`video_codec_options=${video.videoCodecOptions}`);
   }

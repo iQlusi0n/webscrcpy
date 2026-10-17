@@ -13,13 +13,21 @@ import {
 } from "../../src/app/stream/codec.ts";
 import { buildCodecOptions, buildStreamQuery, looksLikeNoPicture } from "../../src/app/stream/query.ts";
 
-const hex = (s: string): Uint8Array => Uint8Array.from(s.replace(/\s+/g, "").match(/../g)!.map((h) => parseInt(h, 16)));
+const hex = (s: string): Uint8Array =>
+  Uint8Array.from(
+    s
+      .replace(/\s+/g, "")
+      .match(/../g)!
+      .map((h) => parseInt(h, 16)),
+  );
 
 // x264, High profile level 4.0, 1920x1080 (coded 1088 with bottom crop)
 const SPS_1080P = hex("67 64 00 28 AC D9 40 78 02 27 E5 C0 44 00 00 03 00 04 00 00 03 00 F0 3C 60 C6 58");
 const PPS = hex("68 EB E3 CB 22 C0");
 // x265 Main profile 1280x720
-const HEVC_SPS = hex("42 01 01 01 60 00 00 03 00 90 00 00 03 00 00 03 00 5D A0 02 80 80 2D 16 59 59 A4 93 2B C0 5A 70 80 00 01 F4 80 00 3A 98 04");
+const HEVC_SPS = hex(
+  "42 01 01 01 60 00 00 03 00 90 00 00 03 00 00 03 00 5D A0 02 80 80 2D 16 59 59 A4 93 2B C0 5A 70 80 00 01 F4 80 00 3A 98 04",
+);
 
 describe("codec preference selection", () => {
   const all = { h264: true, h265: true, av1: true, vp8: true, vp9: true } as const;
@@ -34,14 +42,18 @@ describe("codec preference selection", () => {
   });
 
   test("honours a definite browser false", () => {
-    expect(selectCodec({ ...all, h265: false }, ["OMX.qcom.video.encoder.hevc", "OMX.qcom.video.encoder.avc"])).toEqual({
-      codec: "h264",
-      encoder: "OMX.qcom.video.encoder.avc",
-    });
+    expect(selectCodec({ ...all, h265: false }, ["OMX.qcom.video.encoder.hevc", "OMX.qcom.video.encoder.avc"])).toEqual(
+      {
+        codec: "h264",
+        encoder: "OMX.qcom.video.encoder.avc",
+      },
+    );
   });
 
   test("undefined browser answers are not taken as yes; falls back to h264 without encoder", () => {
-    expect(selectCodec({ h264: undefined, h265: undefined, av1: undefined, vp8: undefined, vp9: undefined }, [])).toEqual({
+    expect(
+      selectCodec({ h264: undefined, h265: undefined, av1: undefined, vp8: undefined, vp9: undefined }, []),
+    ).toEqual({
       codec: "h264",
     });
   });
@@ -59,7 +71,10 @@ describe("codec preference selection", () => {
 describe("Annex-B helpers", () => {
   test("splitAnnexB handles 3- and 4-byte start codes", () => {
     const nalus = splitAnnexB(hex("00 00 00 01 67 AA 00 00 01 68 BB"));
-    expect(nalus.map((n) => Array.from(n))).toEqual([[0x67, 0xaa], [0x68, 0xbb]]);
+    expect(nalus.map((n) => Array.from(n))).toEqual([
+      [0x67, 0xaa],
+      [0x68, 0xbb],
+    ]);
   });
   test("stripEmulationPrevention removes 00 00 03 escapes", () => {
     expect(Array.from(stripEmulationPrevention(hex("00 00 03 01 00 00 03 00 03")))).toEqual([0, 0, 1, 0, 0, 0, 3]);

@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { SecurityPolicy, TOKEN_COOKIE, hostnameOf, isDocumentPath, isLoopbackAddress, originMatchesHost } from "../../src/server/security.ts";
+import {
+  hostnameOf,
+  isDocumentPath,
+  isLoopbackAddress,
+  originMatchesHost,
+  SecurityPolicy,
+  TOKEN_COOKIE,
+} from "../../src/server/security.ts";
 
 const policy = new SecurityPolicy({ allowedHosts: ["app.example.com"], frameAncestors: [] });
 const headers = (h: Record<string, string>): Headers => new Headers(h);
-const withToken = (extra: Record<string, string> = {}): Headers => headers({ host: "localhost:8000", cookie: `${TOKEN_COOKIE}=${policy.tokenValue}`, ...extra });
+const withToken = (extra: Record<string, string> = {}): Headers =>
+  headers({ host: "localhost:8000", cookie: `${TOKEN_COOKIE}=${policy.tokenValue}`, ...extra });
 
 describe("host allowlist", () => {
   test("accepts localhost, IP literals and configured hosts", () => {

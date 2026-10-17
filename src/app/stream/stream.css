@@ -127,5 +127,6 @@
 }
 
 .stream-root [hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: [hidden] must defeat display:flex set by component classes */
   display: none !important;
 }

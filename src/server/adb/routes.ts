@@ -8,8 +8,9 @@ import type {
   SleepWakeRequest,
 } from "@common/api.ts";
 import { isConnectAddress, isDeletablePath, isSerial } from "@common/validate.ts";
-import { HttpError, type AppRouter, type AppServices, type RequestContext } from "../app.ts";
-import { describe, type AdbService } from "./service.ts";
+import type { Adb } from "@yume-chan/adb";
+import { type AppRouter, type AppServices, HttpError, type RequestContext } from "../app.ts";
+import { type AdbService, describe } from "./service.ts";
 
 export const SCREEN_STATE_COMMAND =
   "dumpsys power 2>/dev/null | grep -m1 mWakefulness; dumpsys window 2>/dev/null | grep -m1 -i isKeyguardShowing";
@@ -30,20 +31,22 @@ export function parseScreenStateOutput(output: string): ScreenStateResponse {
 export function registerRoutes(router: AppRouter, service: AdbService, services: AppServices): void {
   const log = services.log("devices");
 
-  const wireless = (action: "connect" | "disconnect") => async (ctx: RequestContext): Promise<Response> => {
-    const { address } = await ctx.json<ConnectRequest>();
-    if (!isConnectAddress(address)) throw new HttpError(400, "invalid address");
-    try {
-      if (action === "connect") await service.client.wireless.connect(address);
-      else await service.client.wireless.disconnect(address);
-      const body: OkResponse = { ok: true };
-      return Response.json(body);
-    } catch (error) {
-      log.warn(`${action} ${address} failed: ${describe(error)}`);
-      const body: OkResponse = { ok: false, message: describe(error) };
-      return Response.json(body);
-    }
-  };
+  const wireless =
+    (action: "connect" | "disconnect") =>
+    async (ctx: RequestContext): Promise<Response> => {
+      const { address } = await ctx.json<ConnectRequest>();
+      if (!isConnectAddress(address)) throw new HttpError(400, "invalid address");
+      try {
+        if (action === "connect") await service.client.wireless.connect(address);
+        else await service.client.wireless.disconnect(address);
+        const body: OkResponse = { ok: true };
+        return Response.json(body);
+      } catch (error) {
+        log.warn(`${action} ${address} failed: ${describe(error)}`);
+        const body: OkResponse = { ok: false, message: describe(error) };
+        return Response.json(body);
+      }
+    };
   router.route("POST", "/api/devices/connect", "auth", wireless("connect"));
   router.route("POST", "/api/devices/disconnect", "auth", wireless("disconnect"));
 
@@ -81,9 +84,10 @@ export function registerRoutes(router: AppRouter, service: AdbService, services:
   router.route("POST", "/api/devices/files/delete", "auth", async (ctx) => {
     const { serial, paths } = await ctx.json<DeleteFilesRequest>();
     if (!isSerial(serial)) throw new HttpError(400, "invalid serial");
-    if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_DELETE_PATHS) throw new HttpError(400, "paths must hold 1–1000 entries");
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_DELETE_PATHS)
+      throw new HttpError(400, "paths must hold 1–1000 entries");
     if (!paths.every(isDeletablePath)) throw new HttpError(400, "path refused");
-    let adb;
+    let adb: Adb;
     try {
       adb = await service.getAdb(serial);
     } catch (error) {

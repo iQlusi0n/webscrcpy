@@ -2,11 +2,12 @@
  * Device list via `host:track-devices`, enriched with props, kind and screen state.
  * Emits DeviceListMessage (without labels; `/ws/devices` adds the per-user label).
  */
-import type { AdbServerClient } from "@yume-chan/adb";
+
 import type { DeviceDescriptor, DeviceKind, DeviceListMessage, DeviceState, ScreenState } from "@common/protocol.ts";
+import type { AdbServerClient } from "@yume-chan/adb";
 import type { AppRouter, AppServices, AppSocket, Logger } from "../app.ts";
 import { parseWmDensity, parseWmSize } from "./probe.ts";
-import { describe, type AdbService } from "./service.ts";
+import { type AdbService, describe } from "./service.ts";
 
 const EMIT_THROTTLE_MS = 300;
 const SCREEN_POLL_MS = 5_000;
@@ -38,7 +39,8 @@ export interface DeviceDetails {
 /** Pure: parse the combined output of DETAILS_COMMAND. */
 export function parseDeviceDetails(output: string): DeviceDetails {
   const parts = output.split(SEPARATOR).map((part) => part.trim());
-  const [manufacturer, model, release, sdkText, characteristics = "", leanback = "", sizeOut = "", densityOut = ""] = parts;
+  const [manufacturer, model, release, sdkText, characteristics = "", leanback = "", sizeOut = "", densityOut = ""] =
+    parts;
   const sdk = Number.parseInt(sdkText ?? "", 10);
   const details: DeviceDetails = { kind: classifyKind(characteristics, leanback, sizeOut, densityOut) };
   if (manufacturer) details.manufacturer = manufacturer;
@@ -145,7 +147,7 @@ export class DeviceTracker {
     try {
       for (let attempt = 0; attempt <= DETAIL_BACKOFF_MS.length; attempt += 1) {
         const device = this.devices.get(serial);
-        if (!device || device.state !== "device" || this.stopped) return;
+        if (device?.state !== "device" || this.stopped) return;
         try {
           const adb = await this.service.getAdb(serial);
           const output = await adb.subprocess.noneProtocol.spawnWaitText(DETAILS_COMMAND);
@@ -191,7 +193,9 @@ export class DeviceTracker {
         let screen: ScreenState;
         try {
           const adb = await this.service.getAdb(device.serial);
-          screen = parseScreenState(await adb.subprocess.noneProtocol.spawnWaitText("dumpsys power 2>/dev/null | grep -m1 mWakefulness"));
+          screen = parseScreenState(
+            await adb.subprocess.noneProtocol.spawnWaitText("dumpsys power 2>/dev/null | grep -m1 mWakefulness"),
+          );
         } catch {
           screen = "unknown";
         }
@@ -271,7 +275,9 @@ export function registerDevicesWs(router: AppRouter, tracker: DeviceTracker, ser
       };
       const send = (message: DeviceListMessage): void => {
         if (ws.readyState !== 1) return;
-        ws.send(JSON.stringify(message.type === "device" ? { ...message, device: withLabel(message.device) } : message));
+        ws.send(
+          JSON.stringify(message.type === "device" ? { ...message, device: withLabel(message.device) } : message),
+        );
       };
       send({ type: "devices", devices: tracker.snapshot().map(withLabel) });
       ws.data.state = tracker.subscribe(send);

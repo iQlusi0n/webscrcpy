@@ -12,7 +12,10 @@ export function registerAuthRoutes(router: Router, auth: AuthService): void {
     if (typeof body?.password !== "string") throw new HttpError(400, "password required");
     const result = auth.login(body.password);
     if (!result.ok) {
-      const res: LoginResponse = result.reason === "locked" ? { ok: false, reason: "locked", retryAfterMs: result.retryAfterMs } : { ok: false, reason: "invalid" };
+      const res: LoginResponse =
+        result.reason === "locked"
+          ? { ok: false, reason: "locked", retryAfterMs: result.retryAfterMs }
+          : { ok: false, reason: "invalid" };
       return jsonResponse(res, 401);
     }
     const res: LoginResponse = { ok: true };
@@ -30,9 +33,11 @@ export function registerAuthRoutes(router: Router, auth: AuthService): void {
     if (auth.fromEnv) throw new HttpError(409, "password is set by AUTH_PASSWORD and cannot be changed here");
     const body = await ctx.json<Partial<SetPasswordRequest>>();
     if (typeof body?.newPassword !== "string") throw new HttpError(400, "newPassword required");
-    if (body.newPassword !== "" && !isAcceptablePassword(body.newPassword)) throw new HttpError(400, `password must be ${MIN_PASSWORD_LENGTH}+ characters`);
+    if (body.newPassword !== "" && !isAcceptablePassword(body.newPassword))
+      throw new HttpError(400, `password must be ${MIN_PASSWORD_LENGTH}+ characters`);
     if (ctx.principal.mode === "password") {
-      if (typeof body.currentPassword !== "string" || !auth.verifyCurrent(body.currentPassword)) throw new HttpError(403, "current password is incorrect");
+      if (typeof body.currentPassword !== "string" || !auth.verifyCurrent(body.currentPassword))
+        throw new HttpError(403, "current password is incorrect");
     }
     auth.setPassword(body.newPassword);
     router.sockets.closeAllSessions("password changed");
