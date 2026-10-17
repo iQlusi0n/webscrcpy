@@ -1,0 +1,33 @@
+# System-scope unit (starts at boot, no user session). Install as root:
+#   install -o root -g root -m 0755 webscrcpy /opt/webscrcpy/webscrcpy
+#   useradd -r -s /usr/sbin/nologin -G plugdev webscrcpy   # plugdev for USB access via udev
+#   install -d -o webscrcpy -g webscrcpy /var/lib/webscrcpy
+#   cp webscrcpy-system.service /etc/systemd/system/webscrcpy.service
+#   systemctl daemon-reload && systemctl enable --now webscrcpy
+# Note: with a dedicated user, the adb daemon runs as that user; USB device rules in
+# /etc/udev/rules.d must grant it access (android-udev-rules package or equivalent).
+
+[Unit]
+Description=webscrcpy — Android mirroring in the browser
+After=network.target
+
+[Service]
+Type=simple
+User=webscrcpy
+Group=webscrcpy
+ExecStart=/opt/webscrcpy/webscrcpy
+Environment=PORT=8000
+Environment=DATA_ROOT=/var/lib/webscrcpy
+Environment=HOME=/var/lib/webscrcpy
+# Environment=ADB_PATH=/usr/bin/adb
+Restart=on-failure
+RestartSec=2s
+StartLimitIntervalSec=60
+StartLimitBurst=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/webscrcpy /tmp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

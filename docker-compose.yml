@@ -1,0 +1,25 @@
+services:
+  webscrcpy:
+    build: .
+    image: webscrcpy:local
+    ports:
+      - "127.0.0.1:8000:8000"   # loopback only; put a TLS reverse proxy in front for other machines
+    volumes:
+      - wsdata:/data
+    environment:
+      # Optional single login password. Leave unset to run open and let your reverse proxy
+      # (Traefik forward-auth, Caddy basic_auth, …) do the authentication.
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      # --- Pattern A (preferred): host runs the adb daemon, container talks to it.
+      #   on the host:  adb -a -P 5037 nodaemon server   (or: ADB_SERVER_SOCKET=tcp:0.0.0.0:5037 adb start-server)
+      ADB_SERVER: ${ADB_SERVER:-host.docker.internal:5037}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # --- Pattern B: USB passthrough, adb daemon inside the container.
+    #   comment out ADB_SERVER above and uncomment:
+    # devices:
+    #   - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+
+volumes:
+  wsdata:

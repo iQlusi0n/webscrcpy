@@ -1,0 +1,23 @@
+# User-scope unit. Install:
+#   mkdir -p ~/.config/systemd/user && cp webscrcpy.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now webscrcpy
+#   loginctl enable-linger $USER     # keep it running after logout
+# Data lives in ~/.local/share/webscrcpy (config.json, webscrcpy.db).
+
+[Unit]
+Description=webscrcpy — Android mirroring in the browser
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/webscrcpy
+Environment=PORT=8000
+# Environment=ADB_PATH=/usr/bin/adb
+# Environment=ALLOWED_HOSTS=devices.example.com
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Install]
+WantedBy=default.target

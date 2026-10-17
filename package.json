@@ -1,0 +1,28 @@
+{
+  "name": "webscrcpy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based Android screen mirroring and control on Bun + vanilla scrcpy-server",
+  "license": "MIT",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "build:web": "bun run scripts/build-web.ts",
+    "build:web:watch": "bun run scripts/build-web.ts --watch",
+    "build": "bun run build:web && bun build --compile --minify --asset-naming=\"[name].[ext]\" src/server/index.ts --outfile dist/webscrcpy",
+    "start": "bun run build:web && bun run src/server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "@yume-chan/adb": "^2.6.4",
+    "@yume-chan/adb-server-node-tcp": "^2.5.2",
+    "@yume-chan/stream-extra": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^5.9.0"
+  }
+}
