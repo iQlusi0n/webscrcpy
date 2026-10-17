@@ -33,3 +33,22 @@
   --error: #cf222e;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
+
+/* First paint before index.ts sets data-theme: follow the OS preference (keep in sync with light). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #f5f6f8;
+    --fg: #1f2328;
+    --muted: #636c76;
+    --border: #d0d7de;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --accent: #0969da;
+    --accent-fg: #ffffff;
+    --success: #1a7f37;
+    --warning: #9a6700;
+    --error: #cf222e;
+    --shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  }
+}

@@ -47,6 +47,8 @@ export function iconButton(name: IconName, title: string, onClick: () => void): 
 
 /** The modal whose `askChild`/`openChild` is currently running; new modals attach to it. */
 let openingParent: Modal | null = null;
+/** Every modal currently open, so a bootstrap can tear them down with their onClose hooks. */
+const openModals = new Set<Modal>();
 
 export class Modal {
   readonly dialog: HTMLDialogElement;
@@ -63,8 +65,14 @@ export class Modal {
   protected closeStarted = false;
   private closeTimer: number | undefined;
   private readonly onNativeClose = () => {
-    // The platform closed us (e.g. Chromium's close watcher); run the normal teardown.
-    if (!this.closeStarted) this.close();
+    if (this.closeStarted) return;
+    if (this.canNativeClose()) {
+      this.close();
+      return;
+    }
+    // The platform closed us (e.g. Chromium's close watcher on a repeated Escape) but the subclass
+    // vetoes: re-open rather than tearing down a live session.
+    if (this.dialog.isConnected && !this.dialog.open) this.dialog.showModal();
   };
 
   constructor(opts: ModalOptions) {
@@ -100,10 +108,16 @@ export class Modal {
     return this.opened && !this.closed;
   }
 
+  /** Closes every open modal (parents first, which also closes their children). */
+  static closeAll(): void {
+    for (const modal of [...openModals]) modal.close();
+  }
+
   open(): this {
     if (this.opened) return this;
     this.opened = true;
     if (openingParent && openingParent !== this) openingParent.adopt(this);
+    openModals.add(this);
     document.body.appendChild(this.dialog);
     this.dialog.showModal();
     this.onOpen();
@@ -117,6 +131,7 @@ export class Modal {
     for (const child of [...this.children]) child.close();
     this.children.clear();
     this.parent?.children.delete(this);
+    openModals.delete(this);
     this.dialog.removeEventListener("close", this.onNativeClose);
     if (this.dialog.open) this.dialog.close();
     this.dialog.remove();
@@ -157,6 +172,14 @@ export class Modal {
 
   protected onOpen(): void {}
   protected onClose(): void {}
+
+  /**
+   * Whether a close performed by the platform (not by our code) may stand. Defaults to the Escape
+   * rule; subclasses with live sessions or running transfers override to veto.
+   */
+  protected canNativeClose(): boolean {
+    return this.dismissible;
+  }
 
   protected onEscape(): void {
     if (this.dismissible) this.close();

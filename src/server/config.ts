@@ -91,7 +91,8 @@ function readFileConfig(path: string): FileConfig {
 /** Builds AppConfig from `env` and the config file; creates the data root. */
 export function loadConfig(env: Env = process.env): AppConfig {
   const dataRoot = resolveDataRoot(env);
-  mkdirSync(dataRoot, { recursive: true });
+  // Holds the scrypt password hash and session hashes: owner-only (existing dirs keep their mode).
+  mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
   const configPath = nonEmpty(env.CONFIG) ?? join(dataRoot, CONFIG_FILE_NAME);
   const file = readFileConfig(configPath);
   return {
@@ -100,7 +101,8 @@ export function loadConfig(env: Env = process.env): AppConfig {
     docker: env.APP_DOCKER === "1",
     allowedHosts: parseCsv(env.ALLOWED_HOSTS) ?? file.allowedHosts ?? [],
     frameAncestors: file.frameAncestors ?? [],
-    authPasswordFromEnv: nonEmpty(env.AUTH_PASSWORD),
+    // Only emptiness is judged by trim(); the password itself is used verbatim (login bodies are not trimmed).
+    authPasswordFromEnv: nonEmpty(env.AUTH_PASSWORD) === undefined ? undefined : env.AUTH_PASSWORD,
     adbPath: nonEmpty(env.ADB_PATH),
     adbServer: nonEmpty(env.ADB_SERVER),
     scrcpyServerPath: nonEmpty(env.SCRCPY_SERVER_PATH),

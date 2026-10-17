@@ -13,26 +13,39 @@ import { HttpError } from "../app.ts";
 import type { Stores } from "../db/index.ts";
 import { jsonResponse, type Router } from "../http.ts";
 
-const MAX_USER_SETTINGS_KEYS = 64;
+export const MAX_USER_SETTINGS_KEYS = 64;
 const MAX_USER_SETTING_BYTES = 16 * 1024;
 const USER_SETTING_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+/** Pass the regex but would alter the object itself rather than store a value. */
+const PROTOTYPE_KEYS: Record<string, true> = Object.fromEntries(
+  ["__proto__", "constructor", "prototype"].map((k) => [k, true]),
+);
 
 const VIDEO_CODEC_SET: Record<string, true> = Object.fromEntries(VIDEO_CODECS.map((c) => [c, true]));
 const AUDIO_CODEC_SET: Record<string, true> = Object.fromEntries(AUDIO_CODECS.map((c) => [c, true]));
 const AUDIO_SOURCE_SET: Record<string, true> = Object.fromEntries(AUDIO_SOURCES.map((c) => [c, true]));
 
-function validateUserPatch(body: unknown): Record<string, unknown> {
+/**
+ * Validates a PATCH body against the key grammar, per-value size and the cap on the total number of
+ * stored keys (`existingKeys` ∪ added − removed ≤ MAX_USER_SETTINGS_KEYS).
+ */
+export function validateUserPatch(body: unknown, existingKeys: readonly string[]): Record<string, unknown> {
   if (typeof body !== "object" || body === null || Array.isArray(body))
     throw new HttpError(400, "object body required");
   const entries = Object.entries(body as Record<string, unknown>);
   if (entries.length > MAX_USER_SETTINGS_KEYS) throw new HttpError(400, "too many keys");
+  const resulting = new Set(existingKeys);
   for (const [key, value] of entries) {
-    if (!USER_SETTING_KEY_RE.test(key)) throw new HttpError(400, `invalid key "${key}"`);
+    if (!USER_SETTING_KEY_RE.test(key) || PROTOTYPE_KEYS[key] === true)
+      throw new HttpError(400, `invalid key "${key}"`);
     if (key === "theme" && value !== undefined && value !== null && value !== "dark" && value !== "light")
       throw new HttpError(400, "theme must be dark|light");
     if (JSON.stringify(value ?? null).length > MAX_USER_SETTING_BYTES)
       throw new HttpError(400, `value for "${key}" too large`);
+    if (value === null || value === undefined) resulting.delete(key);
+    else resulting.add(key);
   }
+  if (resulting.size > MAX_USER_SETTINGS_KEYS) throw new HttpError(400, "too many keys");
   return body as Record<string, unknown>;
 }
 
@@ -91,7 +104,7 @@ export function registerSettingsRoutes(router: Router, stores: Stores): void {
   });
 
   router.coreRoute("PATCH", "/api/settings", "auth", async (ctx) => {
-    const patch = validateUserPatch(await ctx.json<unknown>());
+    const patch = validateUserPatch(await ctx.json<unknown>(), Object.keys(settings.getUserSettings()));
     return jsonResponse(settings.patchUserSettings(patch));
   });
 

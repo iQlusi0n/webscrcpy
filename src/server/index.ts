@@ -8,7 +8,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { registerAdb } from "./adb/index.ts";
 import type { AdbStatus, AppServices } from "./app.ts";
 import { AuthService } from "./auth/index.ts";
-import { DEFAULT_PORT, loadConfig } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { backupDatabase, createStores, DB_BACKUP_FILE_NAME, DB_FILE_NAME, openDatabase } from "./db/index.ts";
 import { Router } from "./http.ts";
 import { log } from "./log.ts";
@@ -21,9 +21,10 @@ import { StaticFiles } from "./static.ts";
 import "./embed.ts";
 
 const HEALTHCHECK_TIMEOUT_MS = 4000;
+const SHUTDOWN_HOOKS_CAP_MS = 5000;
 
 async function healthcheck(): Promise<number> {
-  const port = Number(process.env.PORT ?? DEFAULT_PORT);
+  const { port } = loadConfig();
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
       signal: AbortSignal.timeout(HEALTHCHECK_TIMEOUT_MS),
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   registerSettingsRoutes(router, stores);
   registerLabelRoutes(router, stores);
 
+  const shutdownHooks: Array<() => void | Promise<void>> = [];
   const services: AppServices = {
     db,
     config,
@@ -63,6 +65,9 @@ async function main(): Promise<void> {
         return config.scrcpyServerPath;
       }
       return scrcpyServerAsset;
+    },
+    onShutdown: (hook) => {
+      shutdownHooks.push(hook);
     },
   };
   if (config.scrcpyServerPath) mainLog.warn(`using unverified scrcpy-server override: ${config.scrcpyServerPath}`);
@@ -82,11 +87,17 @@ async function main(): Promise<void> {
   );
 
   let stopping = false;
-  const shutdown = (signal: string): void => {
+  const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
     mainLog.info(`${signal} received, shutting down`);
     server.stop(true);
+    // Let modules finish socket cleanup (adb reverse removal, pty kills) before the process goes away.
+    const hooks = Promise.allSettled(shutdownHooks.map((hook) => Promise.resolve().then(hook)));
+    const cap = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), SHUTDOWN_HOOKS_CAP_MS));
+    const outcome = await Promise.race([hooks, cap]);
+    if (outcome === "timeout") mainLog.warn(`shutdown hooks still running after ${SHUTDOWN_HOOKS_CAP_MS} ms`);
+    else for (const r of outcome) if (r.status === "rejected") mainLog.error("shutdown hook failed", r.reason);
     try {
       backupDatabase(db, dbPath, join(config.dataRoot, DB_BACKUP_FILE_NAME));
     } catch (err) {
@@ -95,8 +106,8 @@ async function main(): Promise<void> {
     db.close();
     process.exit(0);
   };
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 if (process.argv.includes("--healthcheck")) {

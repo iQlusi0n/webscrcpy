@@ -16,12 +16,14 @@ import {
   type RequestContext,
 } from "../app.ts";
 import { type AdbService, describe } from "./service.ts";
-import { closeWith } from "./ws.ts";
+import { closeWith, LiveSockets } from "./ws.ts";
 
 const TERMINAL_TYPE = "xterm-256color";
 
 interface ShellState {
   serial: string;
+  /** set synchronously on the first `start` so a second one can't open another PTY */
+  starting: boolean;
   pty?: AdbShellProtocolPtyProcess | AdbNoneProtocolPtyProcess;
   input?: WritableStreamDefaultWriter<Uint8Array>;
   closed: boolean;
@@ -67,20 +69,7 @@ async function startPty(
   }
   const pty = state.pty;
   state.input = pty.input.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
-  void pty.exited.then(
-    (code) => {
-      if (state.closed) return;
-      const message: ShellServerMessage = { type: "exit", code: code ?? 0 };
-      if (ws.readyState === 1) ws.send(JSON.stringify(message));
-      state.closed = true;
-      closeWith(ws, WsClose.NORMAL);
-    },
-    (error: unknown) => {
-      if (state.closed) return;
-      state.closed = true;
-      closeWith(ws, WsClose.SESSION_FAILED, describe(error));
-    },
-  );
+  // Drain stdout to EOF first: the exit code is reported only after the last output has been sent.
   const reader = pty.output.getReader();
   try {
     for (;;) {
@@ -91,20 +80,43 @@ async function startPty(
   } catch (error) {
     if (!state.closed) log.debug(`${state.serial}: pty output ended: ${describe(error)}`);
   }
+  if (state.closed) return;
+  try {
+    const code = await pty.exited;
+    if (state.closed) return;
+    const message: ShellServerMessage = { type: "exit", code: code ?? 0 };
+    if (ws.readyState === 1) ws.send(JSON.stringify(message));
+    state.closed = true;
+    closeWith(ws, WsClose.NORMAL);
+  } catch (error) {
+    if (state.closed) return;
+    state.closed = true;
+    closeWith(ws, WsClose.SESSION_FAILED, describe(error));
+  }
+}
+
+function closeShell(state: ShellState): void {
+  if (state.closed) return;
+  state.closed = true;
+  void state.input?.close().catch(() => undefined);
+  if (state.pty) void Promise.resolve(state.pty.kill()).catch(() => undefined);
 }
 
 export function registerShell(router: AppRouter, service: AdbService, services: AppServices): void {
   const log = services.log("shell");
+  const live = new LiveSockets(services, (ws) => closeShell(ws.data.state as ShellState));
   router.ws(
     "/ws/shell",
     "auth",
     (ctx: RequestContext): ShellState => {
       const serial = ctx.url.searchParams.get("serial");
       if (!isSerial(serial)) throw new HttpError(400, "invalid serial");
-      return { serial, closed: false };
+      return { serial, starting: false, closed: false };
     },
     {
-      open() {},
+      open(ws: AppSocket) {
+        live.add(ws);
+      },
       message(ws: AppSocket, data: string | Buffer) {
         const state = ws.data.state as ShellState;
         if (state.closed) return;
@@ -115,7 +127,8 @@ export function registerShell(router: AppRouter, service: AdbService, services: 
         const message = parseClientMessage(data);
         if (!message) return;
         if (message.type === "start") {
-          if (state.pty) return;
+          if (state.starting) return;
+          state.starting = true;
           void startPty(ws, state, service, message.cols, message.rows, log).catch((error: unknown) => {
             if (state.closed) return;
             state.closed = true;
@@ -128,10 +141,8 @@ export function registerShell(router: AppRouter, service: AdbService, services: 
         }
       },
       close(ws: AppSocket) {
-        const state = ws.data.state as ShellState;
-        state.closed = true;
-        void state.input?.close().catch(() => undefined);
-        if (state.pty) void Promise.resolve(state.pty.kill()).catch(() => undefined);
+        live.delete(ws);
+        closeShell(ws.data.state as ShellState);
       },
     },
   );

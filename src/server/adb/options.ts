@@ -85,6 +85,8 @@ export function serializeServerOptions(launch: LaunchOptions): string[] {
   if (audioCodec !== undefined && audioCodec !== STREAM_DEFAULTS.audioCodec) args.push(`audio_codec=${audioCodec}`);
   if (audioCodec !== undefined && video.audioSource !== STREAM_DEFAULTS.audioSource)
     args.push(`audio_source=${video.audioSource}`);
+  // playback capture uses ROUTE_FLAG_LOOP_BACK (muted on the device) unless audio_dup asks for LOOP_BACK_RENDER
+  if (audioCodec !== undefined && video.audioSource === "playback") args.push("audio_dup=true");
   if (video.maxSize !== STREAM_DEFAULTS.maxSize) args.push(`max_size=${video.maxSize}`);
   if (video.bitrate !== STREAM_DEFAULTS.bitrate) args.push(`video_bit_rate=${video.bitrate}`);
   if (video.maxFps !== STREAM_DEFAULTS.maxFps) args.push(`max_fps=${video.maxFps}`);

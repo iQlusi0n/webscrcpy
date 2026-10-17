@@ -101,6 +101,18 @@ describe("serializeServerOptions", () => {
     expect(args).toEqual(["scid=0000abcd", "log_level=info", "audio=false"]);
   });
 
+  test("playback source keeps playing on the device via audio_dup", () => {
+    expect(serializeServerOptions(launch({}, { audioSource: "playback" }))).toEqual([
+      "scid=0000abcd",
+      "log_level=info",
+      "audio_source=playback",
+      "audio_dup=true",
+    ]);
+    expect(serializeServerOptions(launch({ audioCodec: undefined }, { audioSource: "playback" }))).not.toContain(
+      "audio_dup=true",
+    );
+  });
+
   test("encoder name and codec options pass through only when allowlisted", () => {
     expect(
       serializeServerOptions(

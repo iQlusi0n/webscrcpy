@@ -1,6 +1,6 @@
 import { api, errorMessage } from "../api.ts";
 import { ConfirmModal } from "./confirm.ts";
-import { type AppContext, currentTheme } from "./context.ts";
+import { type AppContext, clearCachedTheme, currentTheme } from "./context.ts";
 import { button, Modal } from "./modal.ts";
 
 function sectionTitle(text: string): HTMLHeadingElement {
@@ -234,12 +234,12 @@ export class SettingsModal extends Modal {
     theme.add(new Option("light", "light"));
     theme.value = currentTheme();
     theme.addEventListener("change", () => {
-      void this.ctx.setTheme(theme.value === "light" ? "light" : "dark");
+      this.ctx.setTheme(theme.value === "light" ? "light" : "dark").catch(() => undefined);
     });
     const reset = button("Reset", "danger", () => void this.resetSettings());
     return [
       row("Theme", null, theme),
-      row("Reset my settings", "theme, device labels and per-device stream settings", reset),
+      row("Reset my settings", "theme and UI preferences (device labels and stream settings are kept)", reset),
     ];
   }
 
@@ -248,7 +248,7 @@ export class SettingsModal extends Modal {
       () =>
         ConfirmModal.confirm(
           "Reset settings?",
-          "Theme, device labels and per-device stream settings return to their defaults.",
+          "Theme and UI preferences return to their defaults. Device labels and per-device stream settings are kept.",
           { ok: "Reset", danger: true },
         ),
       false,
@@ -256,6 +256,7 @@ export class SettingsModal extends Modal {
     if (!ok) return;
     try {
       await api.settings.reset();
+      clearCachedTheme();
       location.reload();
     } catch (err) {
       this.pane.prepend(note(errorMessage(err), "note-error"));

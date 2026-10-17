@@ -18,7 +18,7 @@ import {
   type WsHandlers,
 } from "./app.ts";
 import type { AuthService, Principal } from "./auth/index.ts";
-import type { CookieAttrs } from "./auth/session.ts";
+import { type CookieAttrs, sessionCookie } from "./auth/session.ts";
 import { isLoopbackAddress, MAX_BODY_BYTES, type SecurityPolicy } from "./security.ts";
 import type { StaticFiles } from "./static.ts";
 
@@ -59,13 +59,20 @@ export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit)
   return new Response(JSON.stringify(body), { status, headers: h });
 }
 
-/** Live sockets indexed by session key, so logout can close them with 4401. */
+/**
+ * Live sockets indexed by session key, so logout can close them with 4401. Sockets opened without a
+ * session (mode 'off') are tracked separately so turning a password on closes them too.
+ */
 export class SocketRegistry {
   private readonly bySession = new Map<string, Set<AppSocket>>();
+  private readonly sessionless = new Set<AppSocket>();
 
   add(ws: AppSocket): void {
     const { sessionKey } = ws.data;
-    if (sessionKey === undefined) return;
+    if (sessionKey === undefined) {
+      this.sessionless.add(ws);
+      return;
+    }
     let set = this.bySession.get(sessionKey);
     if (!set) {
       set = new Set();
@@ -76,17 +83,27 @@ export class SocketRegistry {
 
   remove(ws: AppSocket): void {
     const { sessionKey } = ws.data;
-    if (sessionKey === undefined) return;
+    if (sessionKey === undefined) {
+      this.sessionless.delete(ws);
+      return;
+    }
     const set = this.bySession.get(sessionKey);
     set?.delete(ws);
     if (set && set.size === 0) this.bySession.delete(sessionKey);
   }
 
-  /** Every socket carrying a session (logout revokes all sessions at once). */
+  get size(): number {
+    let n = this.sessionless.size;
+    for (const set of this.bySession.values()) n += set.size;
+    return n;
+  }
+
+  /** Every tracked socket: logout revokes all sessions at once, and a new password ends mode-'off' sockets. */
   closeAllSessions(reason = "logged out"): void {
     for (const set of [...this.bySession.values()]) {
       for (const ws of [...set]) ws.close(WsClose.UNAUTHORIZED, reason);
     }
+    for (const ws of [...this.sessionless]) ws.close(WsClose.UNAUTHORIZED, reason);
   }
 }
 
@@ -152,7 +169,7 @@ export class Router implements AppRouter {
         if (declared > MAX_BODY_BYTES) throw new HttpError(413, "body too large");
         const text = await req.text();
         if (text.length > MAX_BODY_BYTES) throw new HttpError(413, "body too large");
-        if (text.length === 0) return undefined as T;
+        if (text.length === 0) throw new HttpError(400, "JSON body required");
         try {
           return JSON.parse(text) as T;
         } catch {
@@ -169,6 +186,14 @@ export class Router implements AppRouter {
     const isLoopback = isLoopbackAddress(peer?.address);
     const secure = this.deps.security.isSecure(req, isLoopback);
     const isUpgrade = req.headers.get("upgrade")?.toLowerCase() === "websocket";
+
+    // One canonical path for the security layers and the router: `//api/x` would otherwise skip the
+    // `/api/` checks in evaluateHttp while still matching the route (match() drops empty segments).
+    if (url.pathname.includes("//")) {
+      const res = jsonResponse({ error: "not found" }, 404);
+      this.deps.security.applyHeaders(res.headers);
+      return res;
+    }
 
     let res: Response;
     let setToken = false;
@@ -212,7 +237,12 @@ export class Router implements AppRouter {
     if (matched) {
       const principal = this.deps.auth.resolve(req);
       this.deps.auth.checkGate(matched.route.gate, principal);
-      return matched.route.handler(this.buildContext(req, url, matched.params, principal, isLoopback, secure));
+      const ctx = this.buildContext(req, url, matched.params, principal, isLoopback, secure);
+      const res = await matched.route.handler(ctx);
+      // Sliding session: the DB expiry moved, so the browser's cookie lifetime must move with it.
+      if (principal.renewedToken !== undefined)
+        res.headers.append("Set-Cookie", sessionCookie(principal.renewedToken, ctx.cookieAttrs));
+      return res;
     }
     const isApi = url.pathname === "/api" || url.pathname.startsWith("/api/");
     if (isApi) return jsonResponse({ error: "not found" }, 404);

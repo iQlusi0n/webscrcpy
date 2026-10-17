@@ -1,5 +1,5 @@
-import { WS_CLOSE_REASON_MAX_BYTES } from "@common/protocol.ts";
-import type { AppSocket } from "../app.ts";
+import { WS_CLOSE_REASON_MAX_BYTES, WsClose } from "@common/protocol.ts";
+import type { AppServices, AppSocket } from "../app.ts";
 
 /** Close with a protocol.ts code; the reason is trimmed to the RFC 6455 123-byte limit. */
 export function closeWith(ws: AppSocket, code: number, reason?: string): void {
@@ -31,5 +31,31 @@ export class DrainWaiter {
         setTimeout(resolve, 250);
       });
     }
+  }
+}
+
+/**
+ * Open sockets on one endpoint. On shutdown each one is torn down through `release` (device-side
+ * cleanup first, so SIGTERM doesn't strand tunnels or PTYs) and closed with GOING_AWAY.
+ */
+export class LiveSockets {
+  private readonly sockets = new Set<AppSocket>();
+
+  constructor(services: AppServices, release: (ws: AppSocket) => void) {
+    services.onShutdown?.(() => {
+      for (const ws of [...this.sockets]) {
+        this.sockets.delete(ws);
+        release(ws);
+        closeWith(ws, WsClose.GOING_AWAY);
+      }
+    });
+  }
+
+  add(ws: AppSocket): void {
+    this.sockets.add(ws);
+  }
+
+  delete(ws: AppSocket): void {
+    this.sockets.delete(ws);
   }
 }

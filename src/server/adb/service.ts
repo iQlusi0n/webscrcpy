@@ -54,7 +54,8 @@ export class AdbService {
     const created = this.client.createTransport({ serial }).then((transport) => {
       const adb = new Adb(transport);
       void transport.disconnected.then(() => {
-        if (entry.adb === created) {
+        // Only forget the entry this transport belongs to; a re-plugged device may already have a new one.
+        if (entry.adb === created && this.devices.get(serial) === entry) {
           this.log.debug(`transport for ${serial} disconnected`);
           this.devices.delete(serial);
         }
@@ -81,6 +82,29 @@ export class AdbService {
       if (entry.sdk === sdk) entry.sdk = undefined;
     });
     return sdk;
+  }
+
+  /**
+   * Run `command` through a one-shot `shell:` socket and return its output. Unlike
+   * `adb.subprocess`, this does not go through the cached transport, whose socket list only
+   * shrinks on close — so periodic polls don't accumulate dead sockets for the device's lifetime.
+   */
+  async shellText(serial: string, command: string): Promise<string> {
+    const socket = await this.client.createDeviceConnection({ serial }, `shell:${command}`);
+    const decoder = new TextDecoder();
+    let text = "";
+    try {
+      const reader = socket.readable.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    } finally {
+      await Promise.resolve(socket.close()).catch(() => undefined);
+    }
+    return text;
   }
 
   /** Forget everything about a serial (device unplugged). Closes the transport. */

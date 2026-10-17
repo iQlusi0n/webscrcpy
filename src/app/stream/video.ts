@@ -4,7 +4,7 @@
  * fresh keyframe (RESET_VIDEO) at most `MAX_RESET_REQUESTS` times per session.
  */
 import type { VideoCodec } from "@common/scrcpy.ts";
-import { buildConfigFromPacket, buildConfiglessConfig, isConfiglessCodec } from "./codec.ts";
+import { annexBToLengthPrefixed, buildConfigFromPacket, buildConfiglessConfig, isConfiglessCodec } from "./codec.ts";
 import type { MediaPacket } from "./demuxer.ts";
 
 export interface ScreenInfo {
@@ -30,6 +30,10 @@ export interface VideoRendererOptions {
 
 const WATCHDOG_MS = 5000;
 const MAX_RESET_REQUESTS = 3;
+/** consecutive decoder errors without a decoded frame before we stop rebuilding the decoder */
+const MAX_CONSECUTIVE_FAILURES = 5;
+/** codecs whose `description` (avcC/hvcC) requires length-prefixed NAL units */
+const LENGTH_PREFIXED_CODECS: Record<string, true> = { h264: true, h265: true };
 
 export class VideoRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -46,6 +50,7 @@ export class VideoRenderer {
   private watchdog: number | undefined;
   private resetRequests = 0;
   private resetExhaustedLogged = false;
+  private consecutiveFailures = 0;
   private pendingFrame: VideoFrame | null = null;
   private rafId = 0;
   private stopped = false;
@@ -77,6 +82,7 @@ export class VideoRenderer {
     this.codec = codec;
     this.resetRequests = 0;
     this.resetExhaustedLogged = false;
+    this.consecutiveFailures = 0;
     this.onSourceResize(width, height);
     this.createDecoder();
     if (isConfiglessCodec(codec)) this.configure(buildConfiglessConfig(codec, width, height));
@@ -98,19 +104,20 @@ export class VideoRenderer {
   }
 
   push(packet: MediaPacket): void {
-    if (this.stopped || !this.codec || !this.decoder) return;
+    if (this.stopped || !this.codec) return;
     this.bytes += packet.data.length;
     if (packet.isConfig) {
       if (isConfiglessCodec(this.codec)) return;
       const built = buildConfigFromPacket(this.codec, packet.data, this.screenInfo.width, this.screenInfo.height);
       if (built) {
         if (built.displayWidth && built.displayHeight) this.onSourceResize(built.displayWidth, built.displayHeight);
+        this.consecutiveFailures = 0;
         this.configure(built.config);
       }
       return;
     }
     this.inputFrames++;
-    if (this.decoder.state !== "configured") return;
+    if (this.decoder?.state !== "configured") return;
     if (!this.seenKeyframe) {
       if (!packet.isKeyframe) {
         this.droppedFrames++;
@@ -118,12 +125,13 @@ export class VideoRenderer {
       }
       this.seenKeyframe = true;
     }
+    const data = LENGTH_PREFIXED_CODECS[this.codec] ? annexBToLengthPrefixed(packet.data) : packet.data;
     try {
       this.decoder.decode(
         new EncodedVideoChunk({
           type: packet.isKeyframe ? "key" : "delta",
           timestamp: Number(packet.pts),
-          data: packet.data,
+          data,
         }),
       );
     } catch (err) {
@@ -205,9 +213,22 @@ export class VideoRenderer {
     this.armWatchdog();
   }
 
-  /** Recreate the decoder in place; re-configure when we have what we need, else wait for config. */
+  /**
+   * Recreate the decoder in place; re-configure when we have what we need, else wait for config.
+   * After `MAX_CONSECUTIVE_FAILURES` errors without a decoded frame the decoder stays closed until
+   * the next config packet or Refresh, so a config the platform rejects cannot loop forever.
+   */
   recoverDecoder(): void {
     if (this.stopped) return;
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures > MAX_CONSECUTIVE_FAILURES) {
+      if (this.consecutiveFailures === MAX_CONSECUTIVE_FAILURES + 1) {
+        console.warn("[video] decoder keeps failing; waiting for a new config or Refresh");
+      }
+      this.closeDecoder();
+      this.clearWatchdog();
+      return;
+    }
     this.createDecoder();
     if (this.codec && isConfiglessCodec(this.codec)) {
       this.configure(buildConfiglessConfig(this.codec, this.screenInfo.width, this.screenInfo.height));
@@ -247,6 +268,7 @@ export class VideoRenderer {
 
   private onFrame(frame: VideoFrame): void {
     this.clearWatchdog();
+    this.consecutiveFailures = 0;
     this.decodedFrames++;
     if (this.stopped) {
       frame.close();

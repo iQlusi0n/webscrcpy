@@ -4,6 +4,7 @@ import { WsClose } from "@common/protocol.ts";
 import { api, wsUrl } from "../api.ts";
 import type { AppContext } from "./context.ts";
 import { DeviceCard } from "./deviceCard.ts";
+import { parseReloadStamps, recordReload, type SocketClose, shouldReload } from "./reconnectPolicy.ts";
 
 export interface DeviceListElements {
   grid: HTMLElement;
@@ -12,6 +13,7 @@ export interface DeviceListElements {
 }
 
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+const RELOAD_STORAGE_KEY = "ws-reloads";
 
 /** Keeps the device grid in sync with /ws/devices and reconnects with backoff. */
 export class DeviceList {
@@ -21,14 +23,19 @@ export class DeviceList {
   private attempts = 0;
   private stopped = false;
   private reconnectTimer: number | undefined;
+  /** the adb error to show whenever the socket is up; seeded from config, updated by `adb` messages */
+  private adbError: string | null;
 
   constructor(
     private readonly els: DeviceListElements,
     private readonly ctx: AppContext,
-  ) {}
+  ) {
+    this.adbError = adbErrorText(ctx.config.adb);
+  }
 
   start(): void {
     this.stopped = false;
+    this.setAdbBanner(this.adbError);
     this.connect();
   }
 
@@ -42,9 +49,11 @@ export class DeviceList {
   private connect(): void {
     const ws = new WebSocket(wsUrl("/ws/devices"));
     this.ws = ws;
+    let opened = false;
     ws.addEventListener("open", () => {
+      opened = true;
       this.attempts = 0;
-      this.setAdbBanner(null);
+      this.setAdbBanner(this.adbError);
     });
     ws.addEventListener("message", (ev) => {
       if (typeof ev.data !== "string") return;
@@ -60,36 +69,47 @@ export class DeviceList {
       if (this.ws !== ws) return;
       this.ws = null;
       if (this.stopped) return;
-      if (ev.code === WsClose.UNAUTHORIZED || ev.code === 1006) {
-        void this.checkSession();
+      // Snapshot before scheduling: scheduleReconnect bumps `attempts` synchronously.
+      const close: SocketClose = { code: ev.code, neverOpened: !opened };
+      if (close.code === WsClose.UNAUTHORIZED || close.code === 1006) {
+        void this.checkSession(close);
       }
       this.scheduleReconnect();
     });
   }
 
   /**
-   * A refused upgrade: 4401 means our session is gone → back to the login view. 1006 with the
-   * server reachable means the per-launch token changed (server restarted): reload for a fresh
-   * cookie. GET /api/config is token-exempt, so it only proves the server is up; the reload is
-   * rate-limited to avoid loops.
+   * A refused upgrade: 4401 means our session is gone → back to the login view. 1006 before the
+   * socket ever opened, with the server reachable, means the per-launch token changed (server
+   * restarted): reload for a fresh cookie. GET /api/config is token-exempt, so it only proves the
+   * server is up; reloads are capped (see reconnectPolicy) and otherwise we show a banner.
    */
-  private async checkSession(): Promise<void> {
+  private async checkSession(close: SocketClose): Promise<void> {
     let cfg: ConfigResponse;
     try {
       cfg = await api.config();
     } catch {
       return; // server down; the reconnect loop keeps trying
     }
+    if (this.stopped) return;
     if (cfg.auth.mode === "password" && !cfg.auth.loggedIn) {
       this.stop();
       this.ctx.config = cfg;
       this.ctx.restart();
       return;
     }
-    if (this.attempts < 1) return;
-    const last = Number(sessionStorage.getItem("ws-reload") ?? 0);
-    if (Date.now() - last < 30_000) return;
-    sessionStorage.setItem("ws-reload", String(Date.now()));
+    if (!shouldReload(close, true)) return;
+    const stamps = recordReload(parseReloadStamps(sessionStorage.getItem(RELOAD_STORAGE_KEY)), Date.now());
+    if (!stamps) {
+      clearTimeout(this.reconnectTimer);
+      this.stopped = true;
+      this.setAdbBanner(
+        "the server keeps refusing the device list connection; check the reverse proxy forwards Host and Origin unchanged, then reload the page",
+        "error",
+      );
+      return;
+    }
+    sessionStorage.setItem(RELOAD_STORAGE_KEY, JSON.stringify(stamps));
     location.reload();
   }
 
@@ -118,7 +138,8 @@ export class DeviceList {
         this.remove(msg.serial);
         break;
       case "adb":
-        this.setAdbBanner(msg.ok ? null : `adb not available: ${msg.message ?? "unknown error"}`, "error");
+        this.adbError = adbErrorText(msg);
+        this.setAdbBanner(this.adbError);
         break;
     }
     this.els.empty.classList.toggle("hidden", this.devices.size > 0);
@@ -148,4 +169,8 @@ export class DeviceList {
     this.els.adbBanner.classList.toggle("banner-error", kind === "error");
     this.els.adbBanner.classList.toggle("banner-warning", kind === "warning");
   }
+}
+
+function adbErrorText(adb: { ok: boolean; message?: string }): string | null {
+  return adb.ok ? null : `adb not available: ${adb.message ?? "unknown error"}`;
 }

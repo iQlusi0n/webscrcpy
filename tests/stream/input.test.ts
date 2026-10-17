@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { DROP_TARGET_DIR, dropTargetPath } from "../../src/app/stream/dropPush.ts";
 import { dpadKeyForWheel } from "../../src/app/stream/input/dpad.ts";
 import { AndroidKey } from "../../src/app/stream/input/keycodes.ts";
+import { mirrorPoint } from "../../src/app/stream/input/pointerState.ts";
 import { textForKey } from "../../src/app/stream/input/text.ts";
-import { mapToDevice, mirrorPoint, wheelToScroll } from "../../src/app/stream/input/touch.ts";
-import { KEYBOARD_DESCRIPTOR, keyboardReport, MOUSE_DESCRIPTOR, mouseReport } from "../../src/app/stream/input/uhid.ts";
+import { mapToDevice, wheelToScroll } from "../../src/app/stream/input/touch.ts";
+import {
+  CODE_TO_HID_USAGE,
+  DOM_BUTTON_TO_HID,
+  KEYBOARD_DESCRIPTOR,
+  keyboardReport,
+  MOUSE_DESCRIPTOR,
+  mouseReport,
+} from "../../src/app/stream/input/uhid.ts";
 
 describe("touch mapping", () => {
   const screen = { width: 1080, height: 1920 };
@@ -62,6 +71,11 @@ describe("text vs keycode path", () => {
   test("shortcuts never become text", () => {
     expect(textForKey(ev("KeyQ", "a", { ctrlKey: true }))).toBeNull();
   });
+  test("AltGr characters (Ctrl+Alt on Windows) become text", () => {
+    const altGr = { ctrlKey: true, altKey: true, getModifierState: (m: string) => m === "AltGraph" };
+    expect(textForKey(ev("KeyQ", "@", altGr))).toBe("@");
+    expect(textForKey(ev("KeyE", "€", altGr))).toBe("€");
+  });
 });
 
 describe("UHID reports", () => {
@@ -75,5 +89,27 @@ describe("UHID reports", () => {
   });
   test("mouse report clamps deltas to int8", () => {
     expect(Array.from(mouseReport(1, 300, -300, -1))).toEqual([1, 127, 0x81, 0xff]);
+  });
+  test("DOM buttons map to HID bits: left, right, middle, back, forward", () => {
+    expect([0, 1, 2, 3, 4].map((b) => DOM_BUTTON_TO_HID[b])).toEqual([0x01, 0x04, 0x02, 0x08, 0x10]);
+  });
+  test("keyboard descriptor's usage range covers every mapped usage", () => {
+    // key array: Logical Maximum at [52..53], Usage Maximum at [58..59]
+    const logicalMax = KEYBOARD_DESCRIPTOR[53] ?? 0;
+    const usageMax = KEYBOARD_DESCRIPTOR[59] ?? 0;
+    const highest = Math.max(...Object.values(CODE_TO_HID_USAGE));
+    expect(highest).toBeGreaterThan(0x65);
+    expect(logicalMax).toBeGreaterThanOrEqual(highest);
+    expect(usageMax).toBeGreaterThanOrEqual(highest);
+  });
+});
+
+describe("drop push target path", () => {
+  test("uses the basename under the Download directory", () => {
+    expect(dropTargetPath("photo.jpg")).toBe(`${DROP_TARGET_DIR}/photo.jpg`);
+    expect(dropTargetPath("../../etc/passwd")).toBe(`${DROP_TARGET_DIR}/passwd`);
+    expect(dropTargetPath("C:\\Users\\x\\a.txt")).toBe(`${DROP_TARGET_DIR}/a.txt`);
+    expect(dropTargetPath("..")).toBe(`${DROP_TARGET_DIR}/dropped-file`);
+    expect(dropTargetPath("")).toBe(`${DROP_TARGET_DIR}/dropped-file`);
   });
 });

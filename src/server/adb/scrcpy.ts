@@ -43,7 +43,8 @@ import {
 } from "./options.ts";
 import { audioEncodersFor } from "./probe.ts";
 import { type AdbService, describe } from "./service.ts";
-import { closeWith } from "./ws.ts";
+import { ReverseTunnel } from "./tunnel.ts";
+import { closeWith, LiveSockets } from "./ws.ts";
 
 const ACCEPT_TIMEOUT_MS = 10_000;
 const FORWARD_CONNECT_DEADLINE_MS = 120_000;
@@ -51,43 +52,12 @@ const FORWARD_RETRY_MS = 150;
 const STALL_TIMEOUT_MS = 8_000;
 const STALL_RETRY_MS = 2_000;
 const STALL_MAX_RESETS = 3;
+/** CONTROL frames accepted before the control socket exists (flushed after METADATA). */
+const PENDING_CONTROL_MAX = 64;
 const RESET_VIDEO_MSG = new Uint8Array([ControlMsg.RESET_VIDEO]);
 
 interface StreamPrepared {
   options: StreamOptions;
-}
-
-/** Sockets the device opens through the reverse tunnel, handed out in arrival order. */
-class IncomingSockets {
-  private readonly queue: AdbSocket[] = [];
-  private readonly waiters: ((socket: AdbSocket) => void)[] = [];
-
-  push(socket: AdbSocket): void {
-    const waiter = this.waiters.shift();
-    if (waiter) waiter(socket);
-    else this.queue.push(socket);
-  }
-
-  next(timeoutMs: number): Promise<AdbSocket> {
-    const ready = this.queue.shift();
-    if (ready) return Promise.resolve(ready);
-    return new Promise<AdbSocket>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const index = this.waiters.indexOf(settle);
-        if (index !== -1) this.waiters.splice(index, 1);
-        reject(new Error(`scrcpy-server did not connect within ${timeoutMs / 1000} s`));
-      }, timeoutMs);
-      const settle = (socket: AdbSocket): void => {
-        clearTimeout(timer);
-        resolve(socket);
-      };
-      this.waiters.push(settle);
-    });
-  }
-
-  drain(): AdbSocket[] {
-    return this.queue.splice(0);
-  }
 }
 
 class StreamSession {
@@ -95,10 +65,11 @@ class StreamSession {
   private process: AdbNoneProtocolProcess | undefined;
   private tunnelName: string | undefined;
   private reverseAdded = false;
-  private readonly incoming = new IncomingSockets();
+  private tunnel: ReverseTunnel | undefined;
   private readonly sockets: AdbSocket[] = [];
   private readonly readers: SocketReader[] = [];
   private controlWriter: WritableStreamDefaultWriter<Uint8Array> | undefined;
+  private readonly pendingControl: Uint8Array[] = [];
   private readonly congestion = new CongestionController();
   private gotConfig = false;
   private stallTimer: Timer | undefined;
@@ -147,9 +118,11 @@ class StreamSession {
       await ensureServerJar(adb, jarPath, this.log);
       if (this.released) return;
 
+      // Reverse needs adbd to reach our listener through the adb server's loopback, which only
+      // works when that server runs on this host; a remote ADB_SERVER must use forward.
       const launch: LaunchOptions = {
         scid: randomScid(),
-        tunnelForward: sdk < 28,
+        tunnelForward: sdk < 28 || this.services.config.adbServer !== undefined,
         cleanup: sdk >= 28,
         video: this.options,
         audioCodec,
@@ -158,17 +131,23 @@ class StreamSession {
       const expected = 2 + (audioCodec === undefined ? 0 : 1);
 
       if (!launch.tunnelForward) {
-        await adb.reverse.add(this.tunnelName, (socket) => {
-          this.incoming.push(socket);
-        });
+        this.tunnel = new ReverseTunnel(this.tunnelName);
+        await adb.reverse.addExternal(this.tunnelName, this.tunnel.localAddress);
         this.reverseAdded = true;
+        if (this.released) {
+          this.teardownDevice();
+          return;
+        }
       }
-      if (this.released) return;
 
       const command = buildServerCommand(serializeServerOptions(launch));
       this.log.info(`${serial}: launching ${command.slice(4).join(" ")}`);
       const process = await adb.subprocess.noneProtocol.spawn(command);
       this.process = process;
+      if (this.released) {
+        this.teardownDevice();
+        return;
+      }
       void this.teeOutput(process);
       void process.exited.then(() => {
         if (this.released) return;
@@ -176,15 +155,10 @@ class StreamSession {
         this.fail("scrcpy-server exited");
       });
 
-      const sockets = launch.tunnelForward
-        ? await this.connectForward(adb, this.tunnelName, expected)
-        : await this.acceptReverse(expected);
-      if (this.released) {
-        for (const socket of sockets) void socket.close();
-        return;
-      }
-      this.sockets.push(...sockets);
-      const [videoSocket, maybeAudio, maybeControl] = sockets;
+      if (this.tunnel) await this.acceptReverse(this.tunnel, expected);
+      else await this.connectForward(adb, this.tunnelName, expected);
+      if (this.released) return;
+      const [videoSocket, maybeAudio, maybeControl] = this.sockets;
       const audioSocket = audioCodec === undefined ? undefined : maybeAudio;
       const controlSocket = audioCodec === undefined ? maybeAudio : maybeControl;
       if (!videoSocket || !controlSocket) throw new Error("tunnel delivered fewer sockets than expected");
@@ -226,6 +200,7 @@ class StreamSession {
       );
 
       this.controlWriter = controlSocket.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
+      for (const message of this.pendingControl.splice(0)) this.writeControl(message);
       this.armStallTimer();
 
       const loops = [this.videoLoop(video), this.deviceMessageLoop(controlSocket)];
@@ -255,21 +230,18 @@ class StreamSession {
     return { codec };
   }
 
-  private async acceptReverse(expected: number): Promise<AdbSocket[]> {
-    const sockets: AdbSocket[] = [];
-    for (let i = 0; i < expected; i += 1) sockets.push(await this.incoming.next(ACCEPT_TIMEOUT_MS));
-    return sockets;
+  /** Sockets land in `this.sockets` as they arrive so `release()` can close them after a timeout. */
+  private async acceptReverse(tunnel: ReverseTunnel, expected: number): Promise<void> {
+    while (this.sockets.length < expected && !this.released) this.sockets.push(await tunnel.next(ACCEPT_TIMEOUT_MS));
   }
 
-  /** SDK < 28: connect to the device-side listener ourselves; first socket carries a dummy 0x00 byte. */
-  private async connectForward(adb: Adb, name: string, expected: number): Promise<AdbSocket[]> {
+  /** SDK < 28 or remote adb server: connect to the device-side listener; first socket carries a dummy 0x00 byte. */
+  private async connectForward(adb: Adb, name: string, expected: number): Promise<void> {
     const deadline = Date.now() + FORWARD_CONNECT_DEADLINE_MS;
-    const sockets: AdbSocket[] = [];
-    while (sockets.length < expected) {
-      if (this.released) break;
+    while (this.sockets.length < expected && !this.released) {
       try {
         const socket = await adb.createSocket(name);
-        if (sockets.length === 0) {
+        if (this.sockets.length === 0) {
           const probe = new SocketReader(socket);
           const dummy = await Promise.race([
             probe.read(1),
@@ -280,16 +252,15 @@ class StreamSession {
             throw new Error("scrcpy-server did not send its dummy byte in time");
           }
           // Hand the already-buffered stream back as a socket so later reads see the device name next.
-          sockets.push(wrapBuffered(socket, probe));
+          this.sockets.push(wrapBuffered(socket, probe));
         } else {
-          sockets.push(socket);
+          this.sockets.push(socket);
         }
       } catch (error) {
         if (Date.now() >= deadline) throw new Error(`forward tunnel connect timed out: ${describe(error)}`);
         await Bun.sleep(FORWARD_RETRY_MS);
       }
     }
-    return sockets;
   }
 
   private async teeOutput(process: AdbNoneProtocolProcess): Promise<void> {
@@ -403,9 +374,17 @@ class StreamSession {
       this.stallTimer = setTimeout(() => this.armStallTimerRetry(), STALL_RETRY_MS);
   }
 
-  /** Browser CONTROL frame payload (channel byte already stripped) → control socket. */
+  /**
+   * Browser CONTROL frame payload (channel byte already stripped) → control socket. Frames that
+   * arrive before the control socket exists are queued (bounded) and flushed after METADATA.
+   */
   writeControl(message: Uint8Array): void {
-    if (!this.controlWriter || this.released) return;
+    if (this.released) return;
+    if (!this.controlWriter) {
+      if (this.pendingControl.length < PENDING_CONTROL_MAX) this.pendingControl.push(message);
+      else this.log.debug(`${this.options.serial}: control queue full before METADATA, dropping frame`);
+      return;
+    }
     this.controlWriter.write(message).catch((error: unknown) => {
       if (!this.released) this.log.debug(`${this.options.serial}: control write failed: ${describe(error)}`);
     });
@@ -421,13 +400,28 @@ class StreamSession {
     if (this.released) return;
     this.released = true;
     clearTimeout(this.stallTimer);
+    this.pendingControl.length = 0;
     void this.controlWriter?.close().catch(() => undefined);
-    for (const reader of this.readers) void reader.cancel();
-    for (const socket of [...this.sockets, ...this.incoming.drain()])
-      void Promise.resolve(socket.close()).catch(() => undefined);
+    this.teardownDevice();
+  }
+
+  /**
+   * Close everything created so far; safe to call repeatedly. Also used mid-`start()` when
+   * `release()` ran while an await was pending, so the step that just finished gets undone too.
+   */
+  private teardownDevice(): void {
+    for (const reader of this.readers.splice(0)) void reader.cancel();
+    for (const socket of this.sockets.splice(0)) void Promise.resolve(socket.close()).catch(() => undefined);
+    this.tunnel?.close();
     const { adb, tunnelName, process } = this;
-    if (adb && tunnelName && this.reverseAdded) void adb.reverse.remove(tunnelName).catch(() => undefined);
-    if (process) void Promise.resolve(process.kill()).catch(() => undefined);
+    if (adb && tunnelName && this.reverseAdded) {
+      this.reverseAdded = false;
+      void adb.reverse.remove(tunnelName).catch(() => undefined);
+    }
+    if (process) {
+      this.process = undefined;
+      void Promise.resolve(process.kill()).catch(() => undefined);
+    }
   }
 }
 
@@ -448,6 +442,11 @@ function wrapBuffered(socket: AdbSocket, reader: SocketReader): AdbSocket {
 
 export function registerStream(router: AppRouter, service: AdbService, services: AppServices): void {
   const log = services.log("stream");
+  const releaseSession = (ws: AppSocket): void => {
+    const session = ws.data.state;
+    if (session instanceof StreamSession) session.release();
+  };
+  const live = new LiveSockets(services, releaseSession);
   router.ws(
     "/ws/stream",
     "auth",
@@ -461,6 +460,7 @@ export function registerStream(router: AppRouter, service: AdbService, services:
         const { options } = ws.data.state as StreamPrepared;
         const session = new StreamSession(ws, options, service, services, log);
         ws.data.state = session;
+        live.add(ws);
         void session.start();
       },
       message(ws: AppSocket, data: string | Buffer) {
@@ -471,8 +471,8 @@ export function registerStream(router: AppRouter, service: AdbService, services:
         );
       },
       close(ws: AppSocket) {
-        const session = ws.data.state;
-        if (session instanceof StreamSession) session.release();
+        live.delete(ws);
+        releaseSession(ws);
       },
     },
   );

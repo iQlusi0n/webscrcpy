@@ -36,8 +36,12 @@ export function registerAuthRoutes(router: Router, auth: AuthService): void {
     if (body.newPassword !== "" && !isAcceptablePassword(body.newPassword))
       throw new HttpError(400, `password must be ${MIN_PASSWORD_LENGTH}+ characters`);
     if (ctx.principal.mode === "password") {
-      if (typeof body.currentPassword !== "string" || !auth.verifyCurrent(body.currentPassword))
+      if (typeof body.currentPassword !== "string") throw new HttpError(403, "current password is incorrect");
+      const check = auth.checkPassword(body.currentPassword);
+      if (!check.ok) {
+        if (check.reason === "locked") throw new HttpError(429, "too many failed attempts, try again later");
         throw new HttpError(403, "current password is incorrect");
+      }
     }
     auth.setPassword(body.newPassword);
     router.sockets.closeAllSessions("password changed");

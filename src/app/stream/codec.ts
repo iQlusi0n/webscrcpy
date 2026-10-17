@@ -108,6 +108,31 @@ export function splitAnnexB(data: Uint8Array): Uint8Array[] {
   return nalus;
 }
 
+/**
+ * Re-frame an Annex-B access unit as length-prefixed NAL units (u32 BE per NAL), the layout a
+ * decoder configured with an avcC/hvcC `description` expects. Trailing zero bytes (before each
+ * start code and at the end of the unit) are dropped. Returns `data` unchanged without start codes.
+ */
+export function annexBToLengthPrefixed(data: Uint8Array): Uint8Array {
+  const nalus = splitAnnexB(data);
+  const tail = nalus[nalus.length - 1];
+  if (!tail) return data;
+  let end = tail.length;
+  while (end > 0 && tail[end - 1] === 0) end--;
+  nalus[nalus.length - 1] = tail.subarray(0, end);
+  let total = 0;
+  for (const nal of nalus) total += 4 + nal.length;
+  const out = new Uint8Array(total);
+  const view = new DataView(out.buffer);
+  let off = 0;
+  for (const nal of nalus) {
+    view.setUint32(off, nal.length, false);
+    out.set(nal, off + 4);
+    off += 4 + nal.length;
+  }
+  return out;
+}
+
 export function stripEmulationPrevention(nal: Uint8Array): Uint8Array {
   const out = new Uint8Array(nal.length);
   let n = 0;

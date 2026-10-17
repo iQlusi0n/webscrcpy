@@ -3,6 +3,7 @@ import type { DeviceDescriptor, ProbeResult } from "@common/protocol.ts";
 import type { AudioCodec, AudioSource, VideoCodec } from "@common/scrcpy.ts";
 import { api, errorMessage, wsUrl } from "../api.ts";
 import { encoderMatchesCodec, isSoftwareEncoder } from "../stream/codec.ts";
+import { streamBlockedReason } from "./context.ts";
 import { deviceDisplayName } from "./deviceCard.ts";
 import { button, Modal } from "./modal.ts";
 import { StreamModal } from "./streamModal.ts";
@@ -73,27 +74,49 @@ async function decodableCodecs(width: number, height: number): Promise<VideoCode
   return out;
 }
 
-function probe(serial: string): Promise<ProbeResult> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl("/ws/probe", { serial }));
-    let result: ProbeResult | null = null;
+const PROBE_TIMEOUT_MS = 15_000;
+
+interface ProbeRun {
+  result: Promise<ProbeResult>;
+  /** closes the socket; the promise rejects if no reply has arrived yet */
+  cancel(): void;
+}
+
+/** Opens /ws/probe. The caller owns the socket: cancel() on close, and a timeout rejects a hung device. */
+function probe(serial: string): ProbeRun {
+  const ws = new WebSocket(wsUrl("/ws/probe", { serial }));
+  let timer: number | undefined;
+  const result = new Promise<ProbeResult>((resolve, reject) => {
+    let parsed: ProbeResult | null = null;
     ws.addEventListener("message", (ev) => {
-      if (typeof ev.data === "string") {
-        try {
-          result = JSON.parse(ev.data) as ProbeResult;
-        } catch {
-          reject(new Error("malformed probe reply"));
-        }
+      if (typeof ev.data !== "string") return;
+      try {
+        parsed = JSON.parse(ev.data) as ProbeResult;
+      } catch {
+        reject(new Error("malformed probe reply"));
+        ws.close();
       }
     });
     ws.addEventListener("close", (ev) => {
-      if (result) resolve(result);
+      clearTimeout(timer);
+      if (parsed) resolve(parsed);
       else reject(new Error(ev.reason || `probe failed (${ev.code})`));
     });
     ws.addEventListener("error", () => {
       // close follows; its reason is more useful
     });
+    timer = window.setTimeout(() => {
+      reject(new Error(`device did not answer within ${PROBE_TIMEOUT_MS / 1000} s`));
+      ws.close();
+    }, PROBE_TIMEOUT_MS);
   });
+  return {
+    result,
+    cancel: () => {
+      clearTimeout(timer);
+      ws.close();
+    },
+  };
 }
 
 function fmtBitrate(bps: number): string {
@@ -163,6 +186,7 @@ export class ConfigureModal extends Modal {
   private probeResult: ProbeResult | null = null;
   private decodable: VideoCodec[] = [];
   private saved: DeviceStreamSettings = {};
+  private probeRun: ProbeRun | null = null;
 
   private readonly videoCodec = select<VideoCodec>([]);
   private readonly videoEncoder = select<string>([]);
@@ -245,16 +269,17 @@ export class ConfigureModal extends Modal {
 
   private setBusy(busy: boolean): void {
     this.saveBtn.disabled = busy;
-    this.connectBtn.disabled = busy;
+    // Never start a session on the device that this page cannot decode (see the home banner).
+    const blocked = streamBlockedReason();
+    this.connectBtn.disabled = busy || blocked !== null;
+    this.connectBtn.title = blocked ? `Streaming is unavailable: ${blocked}` : "";
     this.resetBtn.disabled = busy;
   }
 
   private async load(): Promise<void> {
+    this.probeRun = probe(this.device.serial);
     try {
-      const [probeResult, saved] = await Promise.all([
-        probe(this.device.serial),
-        api.settings.device(this.device.serial),
-      ]);
+      const [probeResult, saved] = await Promise.all([this.probeRun.result, api.settings.device(this.device.serial)]);
       if (this.closeStarted) return;
       this.probeResult = probeResult;
       this.saved = saved;
@@ -266,9 +291,15 @@ export class ConfigureModal extends Modal {
       this.form.classList.remove("hidden");
       this.setBusy(false);
     } catch (err) {
+      if (this.closeStarted) return;
       this.status.className = "note note-error";
       this.status.textContent = `probe failed: ${errorMessage(err)}`;
     }
+  }
+
+  protected override onClose(): void {
+    this.probeRun?.cancel();
+    this.probeRun = null;
   }
 
   private get sdk(): number {

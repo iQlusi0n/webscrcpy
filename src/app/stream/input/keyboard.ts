@@ -24,6 +24,8 @@ export class KeyboardInput {
   private readonly repeats = new Map<string, number>();
   /** codes whose keydown was sent as text; their keyup is swallowed */
   private readonly textCodes = new Set<string>();
+  /** keycodes sent DOWN and not yet UP, by code */
+  private readonly held = new Map<string, number>();
 
   private readonly onKeyDown = (e: KeyboardEvent): void => this.handle(e, true);
   private readonly onKeyUp = (e: KeyboardEvent): void => this.handle(e, false);
@@ -33,6 +35,7 @@ export class KeyboardInput {
   private readonly onLeave = (): void => {
     this.pointerOver = false;
   };
+  private readonly onBlur = (): void => this.releaseHeld();
 
   constructor(opts: KeyboardInputOptions) {
     this.send = opts.send;
@@ -48,10 +51,12 @@ export class KeyboardInput {
     if (enabled) {
       document.addEventListener("keydown", this.onKeyDown);
       document.addEventListener("keyup", this.onKeyUp);
+      window.addEventListener("blur", this.onBlur);
     } else {
       document.removeEventListener("keydown", this.onKeyDown);
       document.removeEventListener("keyup", this.onKeyUp);
-      this.repeats.clear();
+      window.removeEventListener("blur", this.onBlur);
+      this.releaseHeld();
       this.textCodes.clear();
     }
   }
@@ -69,9 +74,22 @@ export class KeyboardInput {
     return this.container.contains(active) && !isTextEntry(active);
   }
 
+  /** UP for every keycode still down (window blur, disable): Alt+Tab must not leave ALT held. */
+  private releaseHeld(): void {
+    for (const keycode of this.held.values()) this.send(injectKeycode(KeyAction.UP, keycode, 0, 0));
+    this.held.clear();
+    this.repeats.clear();
+  }
+
   private handle(e: KeyboardEvent, down: boolean): void {
     if (!this.isActive()) return;
     if (isTextEntry(document.activeElement) || e.target instanceof HTMLButtonElement) return;
+    // dead keys and IME composition deliver their result as a later text event; sending the raw
+    // keycode too would type the character twice
+    if (e.key === "Dead" || e.isComposing) {
+      e.preventDefault();
+      return;
+    }
     if (down) {
       const text = textForKey(e);
       if (text !== null) {
@@ -90,8 +108,10 @@ export class KeyboardInput {
     if (down) {
       repeat = e.repeat ? (this.repeats.get(e.code) ?? 0) + 1 : 0;
       this.repeats.set(e.code, repeat);
+      this.held.set(e.code, keycode);
     } else {
       this.repeats.delete(e.code);
+      this.held.delete(e.code);
     }
     this.send(injectKeycode(down ? KeyAction.DOWN : KeyAction.UP, keycode, repeat, metaStateOf(e)));
     e.preventDefault();

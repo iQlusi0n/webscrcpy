@@ -5,7 +5,7 @@ import {
   parseWmDensity,
   parseWmSize,
 } from "../../src/server/adb/probe.ts";
-import { parseScreenStateOutput } from "../../src/server/adb/routes.ts";
+import { isSleepWakeAction, parseScreenStateOutput } from "../../src/server/adb/routes.ts";
 import { classifyKind, parseDeviceDetails, parseScreenState } from "../../src/server/adb/tracker.ts";
 
 describe("wm parsers", () => {
@@ -15,6 +15,16 @@ describe("wm parsers", () => {
     expect(parseWmSize("garbage")).toBeUndefined();
     expect(parseWmDensity("Physical density: 420")).toBe(420);
     expect(parseWmDensity("")).toBeUndefined();
+  });
+});
+
+describe("isSleepWakeAction", () => {
+  test("accepts only the two own keys, not prototype members", () => {
+    expect(isSleepWakeAction("sleep")).toBe(true);
+    expect(isSleepWakeAction("wake")).toBe(true);
+    for (const bad of ["constructor", "__proto__", "toString", "", 1, undefined, null, {}]) {
+      expect(isSleepWakeAction(bad)).toBe(false);
+    }
   });
 });
 

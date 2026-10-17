@@ -11,6 +11,7 @@ import { AudioPlayer } from "./audio.ts";
 import { FALLBACK_CODEC, probeDecodeSupport, selectCodec } from "./codec.ts";
 import { expandNotificationPanel, injectKeycode, resetVideo, rotateDevice } from "./control.ts";
 import { buildStreamUrl, Demuxer, type StreamEnd } from "./demuxer.ts";
+import { DropPush } from "./dropPush.ts";
 import { ClipboardSync } from "./input/clipboard.ts";
 import { DpadInput } from "./input/dpad.ts";
 import { KeyboardInput } from "./input/keyboard.ts";
@@ -105,6 +106,7 @@ class StreamSession implements StreamHandle {
   private readonly keyboard: KeyboardInput;
   private readonly uhid: UhidInput;
   private readonly clipboard: ClipboardSync;
+  private readonly dropPush: DropPush;
 
   private demuxer: Demuxer | null = null;
   private url: string | null = null;
@@ -181,6 +183,7 @@ class StreamSession implements StreamHandle {
     this.keyboard = new KeyboardInput({ send, container: this.root, canvas: this.canvas });
     this.uhid = new UhidInput(send, this.canvas);
     this.clipboard = new ClipboardSync(send, this.videoArea);
+    this.dropPush = new DropPush(this.serial, this.videoArea);
     this.canvas.addEventListener("pointerdown", () => this.videoArea.focus({ preventScroll: true }));
     this.applyInputMode();
 
@@ -197,19 +200,13 @@ class StreamSession implements StreamHandle {
     if (this.stopped) return;
     this.stopped = true;
     this.demuxer?.close();
-    this.teardownMedia();
-    this.touch.destroy();
-    this.dpad.destroy();
-    this.keyboard.destroy();
-    this.uhid.destroy();
-    this.clipboard.destroy();
-    this.video.stop();
+    this.teardown();
     this.root.remove();
     this.end({ kind: "normal" });
   }
 
   refresh(): void {
-    if (this.stopped || !this.url) return;
+    if (this.stopped || this.ended || !this.url) return;
     const old = this.demuxer;
     this.demuxer = null;
     old?.detach();
@@ -319,6 +316,8 @@ class StreamSession implements StreamHandle {
         }
       });
     }
+    // a new scrcpy-server has no UHID devices yet (refresh, or toggled on before the socket existed)
+    if (this.uhid.isEnabled) this.uhid.recreateDevices();
     clearInterval(this.tick);
     this.tick = window.setInterval(() => this.onTick(), 1000);
     this.opts.onConnect?.(meta);
@@ -331,10 +330,23 @@ class StreamSession implements StreamHandle {
     this.audio = null;
   }
 
-  /** Exactly one of onDisconnect/onError, once. */
+  /** Everything that must stop once the stream is over: media, input handlers, decoder, file drops. */
+  private teardown(): void {
+    this.teardownMedia();
+    this.touch.destroy();
+    this.dpad.destroy();
+    this.keyboard.destroy();
+    this.uhid.destroy();
+    this.clipboard.destroy();
+    this.dropPush.destroy();
+    this.video.stop();
+  }
+
+  /** Exactly one of onDisconnect/onError, once. Non-local ends tear down like stop() (sans DOM). */
   private end(end: StreamEnd): void {
     if (this.ended) return;
     this.ended = true;
+    if (!this.stopped) this.teardown();
     if (end.kind === "normal") this.opts.onDisconnect?.(end.reason);
     else this.opts.onError?.(end.error);
   }

@@ -28,13 +28,18 @@ export function parseScreenStateOutput(output: string): ScreenStateResponse {
   };
 }
 
+/** Own-property check: "constructor" / "__proto__" must not read through the prototype chain. */
+export function isSleepWakeAction(value: unknown): value is SleepWakeRequest["action"] {
+  return typeof value === "string" && Object.hasOwn(KEYEVENT, value);
+}
+
 export function registerRoutes(router: AppRouter, service: AdbService, services: AppServices): void {
   const log = services.log("devices");
 
   const wireless =
     (action: "connect" | "disconnect") =>
     async (ctx: RequestContext): Promise<Response> => {
-      const { address } = await ctx.json<ConnectRequest>();
+      const { address } = (await ctx.json<Partial<ConnectRequest> | undefined>()) ?? {};
       if (!isConnectAddress(address)) throw new HttpError(400, "invalid address");
       try {
         if (action === "connect") await service.client.wireless.connect(address);
@@ -50,10 +55,8 @@ export function registerRoutes(router: AppRouter, service: AdbService, services:
   router.route("POST", "/api/devices/connect", "auth", wireless("connect"));
   router.route("POST", "/api/devices/disconnect", "auth", wireless("disconnect"));
 
-  const readScreenState = async (serial: string): Promise<ScreenStateResponse> => {
-    const adb = await service.getAdb(serial);
-    return parseScreenStateOutput(await adb.subprocess.noneProtocol.spawnWaitText(SCREEN_STATE_COMMAND));
-  };
+  const readScreenState = async (serial: string): Promise<ScreenStateResponse> =>
+    parseScreenStateOutput(await service.shellText(serial, SCREEN_STATE_COMMAND));
 
   router.route("GET", "/api/devices/screen-state", "auth", async (ctx) => {
     const serial = ctx.url.searchParams.get("serial");
@@ -66,10 +69,10 @@ export function registerRoutes(router: AppRouter, service: AdbService, services:
   });
 
   router.route("POST", "/api/devices/sleep-wake", "auth", async (ctx) => {
-    const { serial, action } = await ctx.json<SleepWakeRequest>();
+    const { serial, action } = (await ctx.json<Partial<SleepWakeRequest> | undefined>()) ?? {};
     if (!isSerial(serial)) throw new HttpError(400, "invalid serial");
+    if (!isSleepWakeAction(action)) throw new HttpError(400, "invalid action");
     const keycode = KEYEVENT[action];
-    if (keycode === undefined) throw new HttpError(400, "invalid action");
     try {
       const adb = await service.getAdb(serial);
       await adb.subprocess.noneProtocol.spawnWaitText(["input", "keyevent", keycode]);
@@ -82,7 +85,7 @@ export function registerRoutes(router: AppRouter, service: AdbService, services:
   });
 
   router.route("POST", "/api/devices/files/delete", "auth", async (ctx) => {
-    const { serial, paths } = await ctx.json<DeleteFilesRequest>();
+    const { serial, paths } = (await ctx.json<Partial<DeleteFilesRequest> | undefined>()) ?? {};
     if (!isSerial(serial)) throw new HttpError(400, "invalid serial");
     if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_DELETE_PATHS)
       throw new HttpError(400, "paths must hold 1–1000 entries");

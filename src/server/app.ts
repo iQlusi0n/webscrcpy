@@ -97,6 +97,8 @@ export interface AppServices {
   labels(): Record<string, string>;
   /** absolute path to the scrcpy-server jar to push (bundled asset or override) */
   scrcpyServerPath(): Promise<string>;
+  /** Registers cleanup (e.g. `adb reverse` removal) that shutdown awaits (5 s cap) before the DB backup. */
+  onShutdown?(hook: () => void | Promise<void>): void;
 }
 
 /** Implemented by src/server/adb/index.ts. */

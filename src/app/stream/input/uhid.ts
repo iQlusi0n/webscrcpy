@@ -64,13 +64,13 @@ export const KEYBOARD_DESCRIPTOR = Uint8Array.of(
   0x15,
   0x00,
   0x25,
-  0x65,
+  0xff,
   0x05,
   0x07,
   0x19,
   0x00,
   0x29,
-  0x65,
+  0xff,
   0x81,
   0x00,
   0xc0,
@@ -262,6 +262,9 @@ export const CODE_TO_HID_USAGE: Record<string, number> = {
   NonConvert: 139,
 };
 
+/** DOM MouseEvent.button → HID button bit (bit0 left, bit1 right, bit2 middle, then back/forward). */
+export const DOM_BUTTON_TO_HID: Record<number, number> = { 0: 0x01, 1: 0x04, 2: 0x02, 3: 0x08, 4: 0x10 };
+
 export const CODE_TO_HID_MODIFIER: Record<string, number> = {
   ControlLeft: 0x01,
   ShiftLeft: 0x02,
@@ -310,8 +313,7 @@ export class UhidInput {
     if (enabled === this.enabled) return;
     this.enabled = enabled;
     if (enabled) {
-      this.send(uhidCreate(UHID_KEYBOARD_ID, 0, 0, "webscrcpy keyboard", KEYBOARD_DESCRIPTOR));
-      this.send(uhidCreate(UHID_MOUSE_ID, 0, 0, "webscrcpy mouse", MOUSE_DESCRIPTOR));
+      this.recreateDevices();
       document.addEventListener("keydown", this.onKeyDown);
       document.addEventListener("keyup", this.onKeyUp);
       window.addEventListener("blur", this.onBlur);
@@ -337,6 +339,15 @@ export class UhidInput {
 
   destroy(): void {
     this.setEnabled(false);
+  }
+
+  /**
+   * Send both UHID_CREATEs. Called on enable and again whenever a new scrcpy-server starts
+   * (metadata after connect/refresh), since its UHID table starts empty.
+   */
+  recreateDevices(): void {
+    this.send(uhidCreate(UHID_KEYBOARD_ID, 0, 0, "webscrcpy keyboard", KEYBOARD_DESCRIPTOR));
+    this.send(uhidCreate(UHID_MOUSE_ID, 0, 0, "webscrcpy mouse", MOUSE_DESCRIPTOR));
   }
 
   // ---------------------------------------------------------------- keyboard
@@ -424,13 +435,13 @@ export class UhidInput {
 
   private readonly onMouseDown = (e: MouseEvent): void => {
     e.preventDefault();
-    this.mouseButtons |= 1 << e.button;
+    this.mouseButtons |= DOM_BUTTON_TO_HID[e.button] ?? 0;
     this.send(uhidInput(UHID_MOUSE_ID, mouseReport(this.mouseButtons, 0, 0, 0)));
   };
 
   private readonly onMouseUp = (e: MouseEvent): void => {
     e.preventDefault();
-    this.mouseButtons &= ~(1 << e.button);
+    this.mouseButtons &= ~(DOM_BUTTON_TO_HID[e.button] ?? 0);
     this.send(uhidInput(UHID_MOUSE_ID, mouseReport(this.mouseButtons, 0, 0, 0)));
   };
 

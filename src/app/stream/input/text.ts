@@ -11,9 +11,11 @@ export type SendControl = (bytes: Uint8Array) => void;
 /**
  * The single printable character this keydown should be injected as text, or null when the
  * keycode path handles it (shortcuts with Ctrl/Alt/Meta, US-layout characters, non-printables).
+ * AltGr (reported as Ctrl+Alt on Windows) is a layout shift, not a shortcut, so its characters are text.
  */
 export function textForKey(e: KeyboardEvent): string | null {
-  if (e.ctrlKey || e.altKey || e.metaKey) return null;
+  const altGraph = typeof e.getModifierState === "function" && e.getModifierState("AltGraph");
+  if (!altGraph && (e.ctrlKey || e.altKey || e.metaKey)) return null;
   const key = e.key;
   if ([...key].length !== 1) return null;
   if (key === " " || key === "\n" || key === "\t") return null;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  annexBToLengthPrefixed,
   buildAvcC,
   buildConfigFromPacket,
   h264CodecString,
@@ -75,6 +76,18 @@ describe("Annex-B helpers", () => {
       [0x67, 0xaa],
       [0x68, 0xbb],
     ]);
+  });
+  test("annexBToLengthPrefixed re-frames 3- and 4-byte start codes as u32 BE lengths", () => {
+    const out = annexBToLengthPrefixed(hex("00 00 00 01 65 AA BB 00 00 01 41 CC"));
+    expect(Array.from(out)).toEqual([0, 0, 0, 3, 0x65, 0xaa, 0xbb, 0, 0, 0, 2, 0x41, 0xcc]);
+  });
+  test("annexBToLengthPrefixed drops trailing zero bytes before start codes and at the end", () => {
+    const out = annexBToLengthPrefixed(hex("00 00 00 01 65 AA 00 00 00 00 01 41 CC 00 00"));
+    expect(Array.from(out)).toEqual([0, 0, 0, 2, 0x65, 0xaa, 0, 0, 0, 2, 0x41, 0xcc]);
+  });
+  test("annexBToLengthPrefixed leaves data without start codes untouched", () => {
+    const raw = hex("00 00 00 05 65 AA BB CC DD");
+    expect(annexBToLengthPrefixed(raw)).toBe(raw);
   });
   test("stripEmulationPrevention removes 00 00 03 escapes", () => {
     expect(Array.from(stripEmulationPrevention(hex("00 00 03 01 00 00 03 00 03")))).toEqual([0, 0, 1, 0, 0, 0, 3]);

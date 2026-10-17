@@ -97,7 +97,8 @@ export class AudioPlayer {
       URL.revokeObjectURL(url);
     }
     if (this.stopped) {
-      await context.close();
+      // stop() already closed the context; a second close() rejects with InvalidStateError
+      if (context.state !== "closed") await context.close().catch(() => undefined);
       return;
     }
     this.gain = context.createGain();

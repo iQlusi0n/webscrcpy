@@ -4,23 +4,14 @@
  * Ctrl+drag simulates a second finger mirrored through the canvas centre (Ctrl+Shift: through the
  * pointer-down anchor), drawn on the overlay canvas. Right button → BACK, middle → HOME.
  */
-import {
-  KeyAction,
-  MotionAction,
-  MotionButton,
-  POINTER_ID_GENERIC_FINGER,
-  POINTER_ID_MOUSE,
-  POINTER_ID_VIRTUAL_FINGER,
-} from "@common/scrcpy.ts";
+import { KeyAction, MotionButton, POINTER_ID_GENERIC_FINGER, POINTER_ID_MOUSE } from "@common/scrcpy.ts";
 import { injectKeycode, injectScroll, injectTouch } from "../control.ts";
 import type { ScreenInfo } from "../video.ts";
 import { AndroidKey } from "./keycodes.ts";
+import { type DevicePoint, PointerState, type TouchAction } from "./pointerState.ts";
 import type { SendControl } from "./text.ts";
 
-export interface DevicePoint {
-  x: number;
-  y: number;
-}
+export type { DevicePoint } from "./pointerState.ts";
 
 export interface ElementRect {
   left: number;
@@ -70,13 +61,6 @@ const BUTTON_TO_MOTION: Record<number, number> = {
   4: MotionButton.FORWARD,
 };
 
-interface ActivePointer {
-  id: bigint;
-  last: DevicePoint;
-  /** multi-touch simulation state, mouse only */
-  mirror: { anchor: DevicePoint; virtual: DevicePoint } | null;
-}
-
 export interface TouchInputOptions {
   send: SendControl;
   canvas: HTMLCanvasElement;
@@ -90,8 +74,7 @@ export class TouchInput {
   private readonly overlay: HTMLCanvasElement;
   private readonly screen: ScreenInfo;
   private enabled = false;
-  private readonly active = new Map<number, ActivePointer>();
-  private nextTouchId = 0;
+  private readonly pointers = new PointerState();
   private mouseButtons = 0;
   private lastScrollAt = 0;
   private pendingScroll: { x: number; y: number; hscroll: number; vscroll: number } | null = null;
@@ -139,12 +122,9 @@ export class TouchInput {
     this.setEnabled(false);
   }
 
-  /** Send UP/CANCEL for every tracked pointer and release held mouse buttons. */
+  /** Send UP for every tracked pointer and release held mouse buttons. */
   releaseAll(): void {
-    for (const [pointerId, p] of this.active) {
-      this.finish(pointerId, p, MotionAction.CANCEL);
-    }
-    this.active.clear();
+    this.emit(this.pointers.releaseAll(this.mouseButtons));
     if (this.mouseButtons & MotionButton.SECONDARY) this.key(AndroidKey.BACK, false);
     if (this.mouseButtons & MotionButton.TERTIARY) this.key(AndroidKey.HOME, false);
     this.mouseButtons = 0;
@@ -170,106 +150,68 @@ export class TouchInput {
       }
       if (button !== MotionButton.PRIMARY || !point) return;
       this.canvas.setPointerCapture(e.pointerId);
-      const stale = this.active.get(e.pointerId);
-      if (stale) this.finish(e.pointerId, stale, MotionAction.UP);
       const mirrored = e.ctrlKey;
       const id = mirrored ? POINTER_ID_GENERIC_FINGER : POINTER_ID_MOUSE;
-      const entry: ActivePointer = { id, last: point, mirror: null };
-      this.active.set(e.pointerId, entry);
-      this.touch(
-        this.active.size === 1 ? MotionAction.DOWN : MotionAction.POINTER_DOWN,
-        id,
-        point,
-        1,
-        mirrored ? 0 : MotionButton.PRIMARY,
-        mirrored ? 0 : this.mouseButtons,
-      );
-      if (mirrored) this.startMirror(entry, point, e.shiftKey);
+      const anchor = mirrored ? (e.shiftKey ? point : this.center()) : null;
+      this.emit(this.pointers.down(e.pointerId, id, point, 1, this.mouseButtons, anchor));
+      this.drawMirror(e.pointerId, point);
       return;
     }
     if (!point) return;
     this.canvas.setPointerCapture(e.pointerId);
-    const stale = this.active.get(e.pointerId);
-    if (stale) this.finish(e.pointerId, stale, MotionAction.UP);
-    const id = BigInt(this.nextTouchId++ % 10);
-    this.active.set(e.pointerId, { id, last: point, mirror: null });
-    this.touch(
-      this.active.size === 1 ? MotionAction.DOWN : MotionAction.POINTER_DOWN,
-      id,
-      point,
-      e.pressure || 1,
-      0,
-      0,
-    );
+    const id = this.pointers.freeTouchId();
+    this.emit(this.pointers.down(e.pointerId, id, point, e.pressure || 1, 0, null));
   };
 
   private readonly onPointerMove = (e: PointerEvent): void => {
-    const entry = this.active.get(e.pointerId);
     const point = this.toDevice(e);
-    if (!entry) {
-      // orphan MOVE with a pressed primary button: synthesize the DOWN first
+    if (!this.pointers.has(e.pointerId)) {
+      // orphan MOVE with a pressed contact: synthesize the DOWN first
       if (point && e.pointerType !== "mouse" && e.buttons !== 0) this.onPointerDown(e);
       return;
     }
-    if (!point) return;
-    entry.last = point;
-    const pressure = e.pointerType === "mouse" ? 1 : e.pressure || 1;
-    this.touch(MotionAction.MOVE, entry.id, point, pressure, 0, entry.mirror ? 0 : this.mouseButtons);
-    if (entry.mirror) {
-      entry.mirror.virtual = mirrorPoint(point, entry.mirror.anchor);
-      this.touch(MotionAction.MOVE, POINTER_ID_VIRTUAL_FINGER, entry.mirror.virtual, 1, 0, 0);
-      this.drawMarkers(point, entry.mirror.virtual);
+    // a second button pressed/released while another is held arrives as pointermove
+    if (e.pointerType === "mouse" && (e.buttons & 1) === 0) {
+      this.mouseButtons &= ~MotionButton.PRIMARY;
+      this.release(e.pointerId, point);
+      return;
     }
+    if (!point) return;
+    const pressure = e.pointerType === "mouse" ? 1 : e.pressure || 1;
+    this.emit(this.pointers.move(e.pointerId, point, pressure, this.mouseButtons));
+    this.drawMirror(e.pointerId, point);
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
     if (e.pointerType === "mouse") {
       const button = BUTTON_TO_MOTION[e.button] ?? 0;
       this.mouseButtons &= ~button;
-      if (button === MotionButton.SECONDARY) {
-        this.key(AndroidKey.BACK, false);
-        return;
-      }
-      if (button === MotionButton.TERTIARY) {
-        this.key(AndroidKey.HOME, false);
-        return;
-      }
-      if (button !== MotionButton.PRIMARY) return;
+      if (button === MotionButton.SECONDARY) this.key(AndroidKey.BACK, false);
+      else if (button === MotionButton.TERTIARY) this.key(AndroidKey.HOME, false);
+      if (button !== MotionButton.PRIMARY && (e.buttons & 1) !== 0) return;
+      this.mouseButtons &= ~MotionButton.PRIMARY;
     }
-    const entry = this.active.get(e.pointerId);
-    if (!entry) return;
-    const point = this.toDevice(e);
-    if (point) entry.last = point;
-    this.active.delete(e.pointerId);
-    this.finish(e.pointerId, entry, this.active.size === 0 ? MotionAction.UP : MotionAction.POINTER_UP);
+    this.release(e.pointerId, this.toDevice(e));
   };
 
   private readonly onPointerCancel = (e: PointerEvent): void => {
-    const entry = this.active.get(e.pointerId);
-    if (!entry) return;
-    this.active.delete(e.pointerId);
-    this.finish(e.pointerId, entry, MotionAction.CANCEL);
+    this.release(e.pointerId, null);
   };
 
   private readonly onPointerLeave = (e: PointerEvent): void => {
     // captured pointers keep delivering events; only uncaptured ones are lost here
     if (this.canvas.hasPointerCapture(e.pointerId)) return;
-    const entry = this.active.get(e.pointerId);
-    if (!entry) return;
-    this.active.delete(e.pointerId);
-    this.finish(e.pointerId, entry, MotionAction.UP);
+    this.release(e.pointerId, null);
   };
 
   private readonly onModifierKey = (e: KeyboardEvent): void => {
     if (e.repeat || (e.key !== "Control" && e.key !== "Shift")) return;
-    for (const entry of this.active.values()) {
-      if (entry.id !== POINTER_ID_GENERIC_FINGER || !entry.mirror) continue;
+    for (const pointerId of this.pointers.mirrored()) {
       if (e.key === "Control" && e.type === "keyup") {
-        this.touch(MotionAction.POINTER_UP, POINTER_ID_VIRTUAL_FINGER, entry.mirror.virtual, 0, 0, 0);
-        entry.mirror = null;
+        this.emit(this.pointers.endMirror(pointerId));
         this.clearOverlay();
       } else if (e.key === "Shift") {
-        entry.mirror.anchor = e.type === "keydown" ? entry.last : this.center();
+        this.pointers.setAnchor(pointerId, e.type === "keydown" ? "last" : this.center());
       }
     }
   };
@@ -293,6 +235,34 @@ export class TouchInput {
   };
 
   // ---------------------------------------------------------------- helpers
+
+  private release(pointerId: number, point: DevicePoint | null): void {
+    if (!this.pointers.has(pointerId)) return;
+    const hadMirror = this.pointers.mirrorOf(pointerId) !== null;
+    this.emit(this.pointers.up(pointerId, point, this.mouseButtons));
+    if (hadMirror) this.clearOverlay();
+    if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
+  }
+
+  private emit(actions: TouchAction[]): void {
+    const maxX = Math.max(0, this.screen.width - 1);
+    const maxY = Math.max(0, this.screen.height - 1);
+    for (const a of actions) {
+      this.send(
+        injectTouch({
+          action: a.action,
+          pointerId: a.id,
+          x: Math.min(a.point.x, maxX),
+          y: Math.min(a.point.y, maxY),
+          screenWidth: this.screen.width,
+          screenHeight: this.screen.height,
+          pressure: a.pressure,
+          actionButton: a.actionButton,
+          buttons: a.buttons,
+        }),
+      );
+    }
+  }
 
   private flushScroll(): void {
     const s = this.pendingScroll;
@@ -320,52 +290,13 @@ export class TouchInput {
     return { x: Math.floor(this.screen.width / 2), y: Math.floor(this.screen.height / 2) };
   }
 
-  private startMirror(entry: ActivePointer, point: DevicePoint, throughAnchor: boolean): void {
-    const anchor = throughAnchor ? point : this.center();
-    const virtual = mirrorPoint(point, anchor);
-    entry.mirror = { anchor, virtual };
-    this.touch(MotionAction.POINTER_DOWN, POINTER_ID_VIRTUAL_FINGER, virtual, 1, 0, 0);
-    this.drawMarkers(point, virtual);
-  }
-
-  private finish(pointerId: number, p: ActivePointer, action: number): void {
-    if (p.mirror) {
-      this.touch(MotionAction.POINTER_UP, POINTER_ID_VIRTUAL_FINGER, p.mirror.virtual, 0, 0, 0);
-      this.clearOverlay();
-    }
-    const isMouse = p.id === POINTER_ID_MOUSE;
-    this.touch(action, p.id, p.last, 0, isMouse ? MotionButton.PRIMARY : 0, isMouse ? this.mouseButtons : 0);
-    if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
-  }
-
-  private touch(
-    action: number,
-    id: bigint,
-    point: DevicePoint,
-    pressure: number,
-    actionButton: number,
-    buttons: number,
-  ): void {
-    this.send(
-      injectTouch({
-        action,
-        pointerId: id,
-        x: Math.min(point.x, Math.max(0, this.screen.width - 1)),
-        y: Math.min(point.y, Math.max(0, this.screen.height - 1)),
-        screenWidth: this.screen.width,
-        screenHeight: this.screen.height,
-        pressure,
-        actionButton,
-        buttons,
-      }),
-    );
-  }
-
   private key(keycode: number, down: boolean): void {
     this.send(injectKeycode(down ? KeyAction.DOWN : KeyAction.UP, keycode, 0, 0));
   }
 
-  private drawMarkers(real: DevicePoint, virtual: DevicePoint): void {
+  private drawMirror(pointerId: number, real: DevicePoint): void {
+    const mirror = this.pointers.mirrorOf(pointerId);
+    if (!mirror) return;
     const ov = this.overlay;
     if (ov.width !== this.screen.width || ov.height !== this.screen.height) {
       ov.width = this.screen.width;
@@ -378,7 +309,7 @@ export class TouchInput {
     ctx.lineWidth = Math.max(2, radius / 4);
     for (const [p, color] of [
       [real, "rgba(0, 200, 255, 0.8)"],
-      [virtual, "rgba(255, 120, 0, 0.8)"],
+      [mirror.virtual, "rgba(255, 120, 0, 0.8)"],
     ] as const) {
       ctx.strokeStyle = color;
       ctx.beginPath();
@@ -391,9 +322,4 @@ export class TouchInput {
     const ctx = this.overlay.getContext("2d");
     ctx?.clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
-}
-
-/** Reflect `p` through `anchor`, clamped to non-negative coordinates. */
-export function mirrorPoint(p: DevicePoint, anchor: DevicePoint): DevicePoint {
-  return { x: Math.max(0, 2 * anchor.x - p.x), y: Math.max(0, 2 * anchor.y - p.y) };
 }

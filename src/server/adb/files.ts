@@ -23,7 +23,7 @@ import {
   type RequestContext,
 } from "../app.ts";
 import { type AdbService, describe } from "./service.ts";
-import { DrainWaiter } from "./ws.ts";
+import { DrainWaiter, LiveSockets } from "./ws.ts";
 
 const PULL_BACKPRESSURE_BYTES = 1024 * 1024;
 const PUSH_PROGRESS_BYTES = 256 * 1024;
@@ -34,15 +34,20 @@ const S_IFLNK = 0o120000;
 interface PushOp {
   kind: "push";
   writer: WritableStreamDefaultWriter<Uint8Array>;
-  received: number;
+  /** bytes handed to the sync socket (resolved writes), reported as `progress` */
+  written: number;
   lastProgress: number;
-  finished: Promise<void>;
+  cancelled: boolean;
 }
 interface PullOp {
   kind: "pull";
   cancel(): void;
 }
-type FileOp = PushOp | PullOp;
+/** Reserved synchronously when the request arrives; replaced once the sync socket is ready. */
+interface PendingOp {
+  kind: "pending";
+}
+type FileOp = PushOp | PullOp | PendingOp;
 
 interface FilesState {
   serial: string;
@@ -110,6 +115,16 @@ async function getSync(state: FilesState, service: AdbService): Promise<AdbSync>
   return state.sync;
 }
 
+/**
+ * adbd ends the `sync:` session after any FAIL, and a cancelled transfer leaves Tango's socket
+ * lock held, so drop the cached socket; the next request opens a fresh one.
+ */
+function resetSync(state: FilesState): void {
+  const sync = state.sync;
+  state.sync = undefined;
+  void sync?.then((value) => value.dispose()).catch(() => undefined);
+}
+
 async function handleList(ws: AppSocket, sync: AdbSync, id: number, path: string): Promise<void> {
   const entries: FileEntry[] = [];
   for await (const entry of sync.opendir(path)) {
@@ -147,26 +162,57 @@ async function handlePull(ws: AppSocket, state: FilesState, sync: AdbSync, id: n
     }
     if (!cancelled && !state.closed) send(ws, { id, type: "done" });
   } finally {
-    state.ops.delete(id);
+    if (state.ops.get(id)?.kind === "pull") state.ops.delete(id);
   }
 }
 
 function handlePush(ws: AppSocket, state: FilesState, sync: AdbSync, id: number, path: string, log: Logger): void {
   const pipe = new TangoTransformStream<Uint8Array, Uint8Array>();
   const writer = pipe.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
-  const finished = sync
+  const op: PushOp = { kind: "push", writer, written: 0, lastProgress: 0, cancelled: false };
+  void sync
     .write({ filename: path, file: pipe.readable, permission: 0o644, mtime: Math.floor(Date.now() / 1000) })
     .then(() => {
-      if (state.ops.get(id)?.kind === "push") send(ws, { id, type: "done" });
+      if (state.ops.get(id) === op) send(ws, { id, type: "done" });
     })
     .catch((error: unknown) => {
+      void writer.abort(error).catch(() => undefined);
+      if (op.cancelled) return;
       log.warn(`${state.serial}: push to ${path} failed: ${describe(error)}`);
       send(ws, { id, type: "error", message: describe(error) });
-      void writer.abort(error).catch(() => undefined);
+      resetSync(state);
     })
-    .finally(() => state.ops.delete(id));
-  state.ops.set(id, { kind: "push", writer, received: 0, lastProgress: 0, finished });
+    .finally(() => {
+      if (state.ops.get(id) === op) state.ops.delete(id);
+    });
+  state.ops.set(id, op);
   send(ws, { id, type: "ready" });
+}
+
+/** Binary push frame: await the device-side write so a fast uploader can't pile up chunks in memory. */
+async function pushChunk(ws: AppSocket, op: PushOp, id: number, chunk: Uint8Array): Promise<void> {
+  try {
+    await op.writer.write(chunk.slice());
+  } catch {
+    return;
+  }
+  op.written += chunk.byteLength;
+  if (op.written - op.lastProgress >= PUSH_PROGRESS_BYTES) {
+    op.lastProgress = op.written;
+    send(ws, { id, type: "progress", bytes: op.written });
+  }
+}
+
+function cancelOp(state: FilesState, id: number, op: FileOp, reason: string): void {
+  state.ops.delete(id);
+  if (op.kind === "pending") return;
+  if (op.kind === "pull") op.cancel();
+  else {
+    op.cancelled = true;
+    void op.writer.abort(new Error(reason)).catch(() => undefined);
+  }
+  // Both transfers leave the sync socket mid-stream; start over rather than wait it out.
+  resetSync(state);
 }
 
 async function dispatch(
@@ -179,10 +225,7 @@ async function dispatch(
   const { id } = request;
   const existing = state.ops.get(id);
   if (request.op === "cancel") {
-    if (!existing) return;
-    if (existing.kind === "pull") existing.cancel();
-    else void existing.writer.abort(new Error("cancelled")).catch(() => undefined);
-    state.ops.delete(id);
+    if (existing) cancelOp(state, id, existing, "cancelled");
     return;
   }
   if (request.op === "push-end") {
@@ -194,14 +237,20 @@ async function dispatch(
     send(ws, { id, type: "error", message: "request id already in flight" });
     return;
   }
+  const pending: PendingOp = { kind: "pending" };
+  state.ops.set(id, pending);
   try {
     const sync = await getSync(state, service);
+    // cancelled or socket closed while the sync socket was opening
+    if (state.ops.get(id) !== pending) return;
     switch (request.op) {
       case "list":
         await handleList(ws, sync, id, request.path);
+        state.ops.delete(id);
         break;
       case "stat":
         await handleStat(ws, sync, id, request.path);
+        state.ops.delete(id);
         break;
       case "pull":
         await handlePull(ws, state, sync, id, request.path);
@@ -211,13 +260,25 @@ async function dispatch(
         break;
     }
   } catch (error) {
-    state.ops.delete(id);
+    const current = state.ops.get(id);
+    if (current === pending || current?.kind === "pull") state.ops.delete(id);
+    if (state.closed) return;
     send(ws, { id, type: "error", message: describe(error) });
+    resetSync(state);
   }
+}
+
+function closeState(state: FilesState): void {
+  if (state.closed) return;
+  state.closed = true;
+  for (const [id, op] of [...state.ops]) cancelOp(state, id, op, "socket closed");
+  state.ops.clear();
+  resetSync(state);
 }
 
 export function registerFiles(router: AppRouter, service: AdbService, services: AppServices): void {
   const log = services.log("files");
+  const live = new LiveSockets(services, (ws) => closeState(ws.data.state as FilesState));
   router.ws(
     "/ws/files",
     "auth",
@@ -227,7 +288,9 @@ export function registerFiles(router: AppRouter, service: AdbService, services: 
       return { serial, ops: new Map(), drain: new DrainWaiter(), closed: false };
     },
     {
-      open() {},
+      open(ws: AppSocket) {
+        live.add(ws);
+      },
       message(ws: AppSocket, data: string | Buffer) {
         const state = ws.data.state as FilesState;
         if (state.closed) return;
@@ -249,25 +312,14 @@ export function registerFiles(router: AppRouter, service: AdbService, services: 
           data.byteOffset + FILES_BINARY_PREFIX,
           data.byteLength - FILES_BINARY_PREFIX,
         );
-        op.received += chunk.byteLength;
-        op.writer.write(chunk.slice()).catch(() => undefined);
-        if (op.received - op.lastProgress >= PUSH_PROGRESS_BYTES) {
-          op.lastProgress = op.received;
-          send(ws, { id, type: "progress", bytes: op.received });
-        }
+        return pushChunk(ws, op, id, chunk);
       },
       drain(ws: AppSocket) {
         (ws.data.state as FilesState).drain.onDrain();
       },
       close(ws: AppSocket) {
-        const state = ws.data.state as FilesState;
-        state.closed = true;
-        for (const op of state.ops.values()) {
-          if (op.kind === "pull") op.cancel();
-          else void op.writer.abort(new Error("socket closed")).catch(() => undefined);
-        }
-        state.ops.clear();
-        void state.sync?.then((sync) => sync.dispose()).catch(() => undefined);
+        live.delete(ws);
+        closeState(ws.data.state as FilesState);
       },
     },
   );

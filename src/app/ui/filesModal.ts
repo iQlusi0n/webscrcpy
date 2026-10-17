@@ -202,49 +202,57 @@ class FilesClient {
 
   async push(path: string, file: File, onProgress: (bytes: number) => void): Promise<void> {
     const id = this.nextId++;
+    // Set by a server error; the send loop checks it so a failed upload stops streaming at once
+    // (the server already dropped the op and ignores further frames).
+    let failed: Error | null = null;
     let ready!: () => void;
     let done!: () => void;
-    let fail!: (err: Error) => void;
-    const readyP = new Promise<void>((resolve, reject) => {
+    let rejectDone!: (err: Error) => void;
+    const readyP = new Promise<void>((resolve) => {
       ready = resolve;
-      fail = reject;
     });
     const doneP = new Promise<void>((resolve, reject) => {
       done = resolve;
-      fail = (err) => {
-        reject(err);
-      };
+      rejectDone = reject;
     });
-    const failBoth = (err: Error) => {
-      fail(err);
-      readyP.catch(() => undefined);
-      doneP.catch(() => undefined);
-    };
+    doneP.catch(() => undefined);
+    // Progress is the furthest point either side reports: the server's acked count trails what
+    // we sent by up to the socket buffer, so mixing the two raw would move the bar backwards.
+    let sent = 0;
+    let acked = 0;
+    const report = () => onProgress(Math.max(sent, acked));
     this.pending.set(id, {
       onText: (msg) => {
         if (msg.type === "ready") ready();
         else if (msg.type === "done") done();
-        else if (msg.type === "progress") onProgress(msg.bytes);
-        else if (msg.type === "error") failBoth(new Error(msg.message));
+        else if (msg.type === "progress") {
+          acked = msg.bytes;
+          report();
+        } else if (msg.type === "error") {
+          failed = new Error(msg.message);
+          rejectDone(failed);
+        }
       },
     });
     await this.send({ id, op: "push", path, size: file.size });
     await Promise.race([readyP, doneP]);
     const reader = file.stream().getReader();
-    let sent = 0;
     try {
       for (;;) {
         const { value, done: eof } = await reader.read();
         if (eof) break;
         for (let off = 0; off < value.byteLength; off += FILES_CHUNK_SIZE) {
+          if (failed) throw failed;
           const chunk = value.subarray(off, Math.min(off + FILES_CHUNK_SIZE, value.byteLength));
           await this.sendBinary(id, chunk);
           sent += chunk.byteLength;
-          onProgress(sent);
+          report();
         }
       }
+      if (failed) throw failed;
       await this.send({ id, op: "push-end" });
     } catch (err) {
+      reader.cancel().catch(() => undefined);
       this.pending.delete(id);
       this.send({ id, op: "cancel" }).catch(() => undefined);
       throw err;
@@ -273,6 +281,8 @@ export class FilesModal extends Modal {
   private readonly filter = document.createElement("input");
   private readonly list = document.createElement("div");
   private readonly tbody = document.createElement("tbody");
+  /** running/failed transfer rows; kept out of `tbody` so render() cannot detach them */
+  private readonly transferBody = document.createElement("tbody");
   private readonly headerCheck = document.createElement("input");
   private readonly headers: Record<SortKey, HTMLTableCellElement> = {
     name: document.createElement("th"),
@@ -331,7 +341,7 @@ export class FilesModal extends Modal {
     thActions.className = "col-actions";
     hr.append(thCheck, this.headers.name, this.headers.size, this.headers.mtime, thActions);
     thead.appendChild(hr);
-    table.append(thead, this.tbody);
+    table.append(thead, this.transferBody, this.tbody);
     this.list.appendChild(table);
 
     this.message.className = "note hidden";
@@ -466,7 +476,7 @@ export class FilesModal extends Modal {
 
   private renderRow(entry: FileEntry): HTMLTableRowElement {
     const tr = document.createElement("tr");
-    tr.className = entry.isDir ? "dir" : "file";
+    tr.className = entry.isDir ? "dir" : entry.isLink ? "link" : "file";
     tr.dataset.name = entry.name;
 
     const tdCheck = document.createElement("td");
@@ -485,6 +495,7 @@ export class FilesModal extends Modal {
     tdName.append(icon(iconFor(entry)), document.createTextNode(entry.name + (entry.isLink ? " →" : "")));
     tdName.title = entry.name;
     if (entry.isDir) tdName.addEventListener("click", () => void this.load(joinPath(this.path, entry.name)));
+    else if (entry.isLink) tdName.addEventListener("click", () => void this.openLink(entry));
 
     const tdSize = document.createElement("td");
     tdSize.className = "col-size";
@@ -543,7 +554,7 @@ export class FilesModal extends Modal {
     status.className = "col-size";
     status.colSpan = 3;
     tr.append(td, tdName, status);
-    this.tbody.prepend(tr);
+    this.transferBody.prepend(tr);
     this.transfers++;
     this.updateFooter();
     return { tr, bar, status };
@@ -558,6 +569,30 @@ export class FilesModal extends Modal {
       row.bar.style.width = "0";
     }
     this.updateFooter();
+  }
+
+  /**
+   * LIST and lstat report symlinks as links, not dirs (e.g. /sdcard, /etc, /d). Try to enter the
+   * target as a directory; if that fails it is a file link, so download it instead.
+   */
+  private async openLink(entry: FileEntry): Promise<void> {
+    const target = joinPath(this.path, entry.name);
+    this.status.textContent = "loading…";
+    this.hideMessage();
+    let entries: FileEntry[];
+    try {
+      entries = await this.client.list(target);
+    } catch {
+      if (this.closeStarted) return;
+      this.updateFooter();
+      await this.download(entry);
+      return;
+    }
+    this.path = target;
+    this.entries = entries.filter((e) => e.name !== "." && e.name !== "..");
+    this.selected.clear();
+    this.renderBreadcrumbs();
+    this.render();
   }
 
   private async download(entry: FileEntry): Promise<void> {
@@ -689,6 +724,10 @@ export class FilesModal extends Modal {
 
   protected override onEscape(): void {
     this.requestClose();
+  }
+
+  protected override canNativeClose(): boolean {
+    return this.transfers === 0;
   }
 
   protected override onBackdrop(): void {

@@ -16,9 +16,8 @@ export class SettingsStore {
 
   getUserSettings(): UserSettings {
     const rows = this.db.query<{ key: string; value: string }, []>("SELECT key, value FROM settings").all();
-    const out: UserSettings = {};
-    for (const r of rows) out[r.key] = JSON.parse(r.value);
-    return out;
+    // Own data properties only: a stored "__proto__" key must not re-parent the result object.
+    return Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value) as unknown]));
   }
 
   /** Merges `patch`; a key whose value is `null` or `undefined` is removed. */

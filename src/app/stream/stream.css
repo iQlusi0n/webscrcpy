@@ -126,6 +126,28 @@
   cursor: pointer;
 }
 
+.stream-video.stream-drop-active {
+  outline: 2px dashed var(--accent, #4c8dff);
+  outline-offset: -4px;
+}
+
+.stream-drop-toast {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: rgba(30, 30, 36, 0.92);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
 .stream-root [hidden] {
   /* biome-ignore lint/complexity/noImportantStyles: [hidden] must defeat display:flex set by component classes */
   display: none !important;

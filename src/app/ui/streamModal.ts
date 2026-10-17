@@ -4,6 +4,7 @@ import { api, errorMessage } from "../api.ts";
 import { startStream } from "../stream/index.ts";
 import type { StreamHandle } from "../stream/types.ts";
 import { deviceDisplayName } from "./deviceCard.ts";
+import { resolveMaxSize } from "./fitToScreen.ts";
 import { Modal } from "./modal.ts";
 
 /** Hosts a stream view. Escape and backdrop are blocked while connected; × always stops. */
@@ -41,22 +42,27 @@ export class StreamModal extends Modal {
     if (this.closeStarted) return;
     const opts = {
       serial: this.device.serial,
-      settings,
+      settings: resolveMaxSize(settings, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        dpr: window.devicePixelRatio,
+      }),
       container: this.container,
       onConnect: () => {
         this.error.classList.add("hidden");
       },
       onDisconnect: () => {
-        this.handle = null;
         this.close();
       },
       onError: (err: Error) => {
-        this.handle = null;
         this.fail(err);
       },
       ...(this.device.kind ? { deviceKind: this.device.kind } : {}),
     };
-    this.handle = startStream(opts);
+    const handle = startStream(opts);
+    this.handle = handle;
+    // The engine may end synchronously (e.g. invalid serial) before the handle was assigned.
+    if (this.closeStarted) handle.stop();
   }
 
   private fail(err: Error): void {
@@ -77,9 +83,12 @@ export class StreamModal extends Modal {
     this.close();
   }
 
+  protected override canNativeClose(): boolean {
+    return !this.handle?.isConnected;
+  }
+
+  /** stop() is idempotent, so this is safe after the engine already ended the stream. */
   protected override onClose(): void {
-    const handle = this.handle;
-    this.handle = null;
-    handle?.stop();
+    this.handle?.stop();
   }
 }

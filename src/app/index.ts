@@ -2,12 +2,14 @@ import "./ui/theme.css";
 import "./ui/app.css";
 import type { UserSettings } from "@common/api.ts";
 import { api, errorMessage, onUnauthorized } from "./api.ts";
-import { AppContext, applyTheme } from "./ui/context.ts";
+import { AppContext, applyTheme, cachedTheme, cacheTheme } from "./ui/context.ts";
 import { renderHome } from "./ui/home.ts";
 import { renderLogin } from "./ui/loginView.ts";
+import { Modal } from "./ui/modal.ts";
 
-// First paint follows the OS preference; the saved theme overrides it once settings load.
-applyTheme(matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+// First paint: the cached saved theme, else the OS preference (theme.css already painted that
+// before this script ran). The server's saved theme overrides it once settings load.
+applyTheme(cachedTheme() ?? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
 
 const rootEl = document.getElementById("app");
 if (!rootEl) throw new Error("#app missing");
@@ -22,7 +24,7 @@ async function bootstrap(): Promise<void> {
   bootstrapping = true;
   teardown?.();
   teardown = null;
-  for (const dialog of document.querySelectorAll("dialog.modal")) dialog.remove();
+  Modal.closeAll();
   try {
     const config = await api.config();
     if (config.auth.mode === "password" && !config.auth.loggedIn) {
@@ -31,7 +33,10 @@ async function bootstrap(): Promise<void> {
       return;
     }
     const settings: UserSettings = await api.settings.get().catch(() => ({}));
-    if (settings.theme === "dark" || settings.theme === "light") applyTheme(settings.theme);
+    if (settings.theme === "dark" || settings.theme === "light") {
+      applyTheme(settings.theme);
+      cacheTheme(settings.theme);
+    }
     ctx = new AppContext(config, settings, () => void bootstrap());
     teardown = renderHome(root, ctx);
   } catch (err) {

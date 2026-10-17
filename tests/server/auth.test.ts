@@ -57,4 +57,17 @@ describe("AuthService", () => {
     if (!locked.ok && locked.reason === "locked") expect(locked.retryAfterMs).toBeGreaterThan(0);
     expect(auth.login("correct horse", 1000 + 16 * 60 * 1000).ok).toBe(true);
   });
+
+  test("checkPassword shares the lockout with login (current-password check on password change)", () => {
+    const auth = new AuthService(createStores(openDatabase(":memory:")), baseConfig);
+    auth.setPassword("correct horse");
+    let last = auth.checkPassword("wrong", 1000);
+    for (let i = 1; i < LOCKOUT_MAX_FAILS; i++) last = auth.checkPassword("wrong", 1000 + i);
+    expect(last.ok).toBe(false);
+    if (!last.ok) expect(last.reason).toBe("locked");
+    const login = auth.login("correct horse", 2000);
+    expect(login.ok).toBe(false);
+    if (!login.ok) expect(login.reason).toBe("locked");
+    expect(auth.checkPassword("correct horse", 1000 + 16 * 60 * 1000).ok).toBe(true);
+  });
 });

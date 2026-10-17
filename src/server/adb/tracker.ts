@@ -14,6 +14,7 @@ const SCREEN_POLL_MS = 5_000;
 const DETAIL_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const TRACK_RETRY_MS = 3_000;
 const SEPARATOR = "::";
+const SCREEN_POLL_COMMAND = "dumpsys power 2>/dev/null | grep -m1 mWakefulness";
 
 const DETAILS_COMMAND = [
   "getprop ro.product.manufacturer",
@@ -70,6 +71,7 @@ export class DeviceTracker {
   private readonly listeners = new Set<DeviceListener>();
   private readonly pending = new Set<string>();
   private readonly detailsInFlight = new Set<string>();
+  private readonly screenPollInFlight = new Set<string>();
   private flushTimer: Timer | undefined;
   private pollTimer: Timer | undefined;
   private observer: AdbServerClient.DeviceObserver | undefined;
@@ -186,18 +188,21 @@ export class DeviceTracker {
     this.pollTimer = undefined;
   }
 
+  /** One `dumpsys` per device per tick; a device whose previous poll is still running is skipped. */
   private async pollScreens(): Promise<void> {
-    const targets = [...this.devices.values()].filter((device) => device.state === "device");
+    const targets = [...this.devices.values()].filter(
+      (device) => device.state === "device" && !this.screenPollInFlight.has(device.serial),
+    );
     await Promise.all(
       targets.map(async (device) => {
+        this.screenPollInFlight.add(device.serial);
         let screen: ScreenState;
         try {
-          const adb = await this.service.getAdb(device.serial);
-          screen = parseScreenState(
-            await adb.subprocess.noneProtocol.spawnWaitText("dumpsys power 2>/dev/null | grep -m1 mWakefulness"),
-          );
+          screen = parseScreenState(await this.service.shellText(device.serial, SCREEN_POLL_COMMAND));
         } catch {
           screen = "unknown";
+        } finally {
+          this.screenPollInFlight.delete(device.serial);
         }
         const current = this.devices.get(device.serial);
         if (!current || current.screen === screen) return;

@@ -744,7 +744,8 @@ dialog.modal-auto {
   height: 20px;
 }
 
-.files-table tr.dir td.col-name {
+.files-table tr.dir td.col-name,
+.files-table tr.link td.col-name {
   cursor: pointer;
 }
 

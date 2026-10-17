@@ -22,12 +22,13 @@ export interface Principal {
   loggedIn: boolean;
   /** SHA-256 of the presented session token; undefined when not logged in */
   sessionKey?: string;
+  /** The presented token when this request slid the session's expiry, so the cookie can be re-issued */
+  renewedToken?: string;
 }
 
-export type LoginResult =
-  | { ok: true; token: string }
-  | { ok: false; reason: "invalid" }
-  | { ok: false; reason: "locked"; retryAfterMs: number };
+export type PasswordFailure = { ok: false; reason: "invalid" } | { ok: false; reason: "locked"; retryAfterMs: number };
+export type PasswordCheck = { ok: true } | PasswordFailure;
+export type LoginResult = { ok: true; token: string } | PasswordFailure;
 
 export class AuthService {
   /** Hash of AUTH_PASSWORD, computed once; undefined when the env var is absent. */
@@ -65,9 +66,9 @@ export class AuthService {
       this.stores.sessions.delete(key);
       return { mode, loggedIn: false };
     }
-    if (now - session.lastSeenAt > SESSION_TOUCH_INTERVAL_MS)
-      this.stores.sessions.touch(key, now, now + SESSION_TTL_MS);
-    return { mode, loggedIn: true, sessionKey: key };
+    if (now - session.lastSeenAt <= SESSION_TOUCH_INTERVAL_MS) return { mode, loggedIn: true, sessionKey: key };
+    this.stores.sessions.touch(key, now, now + SESSION_TTL_MS);
+    return { mode, loggedIn: true, sessionKey: key, renewedToken: token };
   }
 
   /** Throws HttpError(401) when `gate` is 'auth', mode is 'password' and no session was presented. */
@@ -75,7 +76,11 @@ export class AuthService {
     if (gate === "auth" && p.mode === "password" && !p.loggedIn) throw new HttpError(401, "authentication required");
   }
 
-  login(password: string, now = Date.now()): LoginResult {
+  /**
+   * Verifies `password` against the current hash under the shared lockout (5 failures / 5 min → 15 min).
+   * Both login and the current-password check on password change go through here.
+   */
+  checkPassword(password: string, now = Date.now()): PasswordCheck {
     const hash = this.currentHash();
     if (hash === null) {
       verifyPassword(password, BLIND_HASH);
@@ -93,6 +98,12 @@ export class AuthService {
       return { ok: false, reason: "invalid" };
     }
     this.stores.settings.setApp("lockout", null);
+    return { ok: true };
+  }
+
+  login(password: string, now = Date.now()): LoginResult {
+    const check = this.checkPassword(password, now);
+    if (!check.ok) return check;
     const token = newSessionToken();
     this.stores.sessions.create(hashToken(token), now, now + SESSION_TTL_MS);
     return { ok: true, token };
@@ -101,12 +112,6 @@ export class AuthService {
   /** Revokes every session (there is one operator; logout means "log out everywhere"). */
   logoutAll(): void {
     this.stores.sessions.deleteAll();
-  }
-
-  /** Verifies the current password when one is stored. */
-  verifyCurrent(password: string): boolean {
-    const hash = this.currentHash();
-    return hash !== null && verifyPassword(password, hash);
   }
 
   /** Stores a new password ('' clears it → mode 'off'). Drops every session either way. */

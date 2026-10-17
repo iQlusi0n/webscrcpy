@@ -22,7 +22,8 @@ export function renderHome(root: HTMLElement, ctx: AppContext): () => void {
 
   const themeBtn = iconButton("sun", "Toggle theme", () => {
     const next = currentTheme() === "dark" ? "light" : "dark";
-    void ctx.setTheme(next);
+    // The theme is applied locally first; a failed PATCH only loses persistence.
+    ctx.setTheme(next).catch(() => undefined);
     renderThemeIcon();
   });
   const renderThemeIcon = () => {
@@ -35,9 +36,12 @@ export function renderHome(root: HTMLElement, ctx: AppContext): () => void {
 
   if (ctx.config.auth.mode === "password") {
     const logout = iconButton("user", "Log out", () => {
-      void api.auth.logout().finally(() => {
-        void ctx.refreshConfig().finally(() => ctx.restart());
-      });
+      // restart() re-fetches the config itself; a 401 here also triggers the global bootstrap, which
+      // the bootstrap guard dedupes.
+      api.auth
+        .logout()
+        .catch(() => undefined)
+        .then(() => ctx.restart());
     });
     header.appendChild(logout);
   }

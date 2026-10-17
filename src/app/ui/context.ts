@@ -4,12 +4,40 @@ import { api } from "../api.ts";
 
 export type Theme = "dark" | "light";
 
+const THEME_STORAGE_KEY = "webscrcpy.theme";
+
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
 }
 
 export function currentTheme(): Theme {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+/** The last theme saved on the server, cached so the first paint doesn't wait for two fetches. */
+export function cachedTheme(): Theme | null {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    return value === "dark" || value === "light" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function cacheTheme(theme: Theme): void {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // storage disabled (private mode / quota); the OS preference still drives the first paint
+  }
+}
+
+export function clearCachedTheme(): void {
+  try {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  } catch {
+    // storage disabled; nothing was cached
+  }
 }
 
 export class AppContext {
@@ -31,6 +59,7 @@ export class AppContext {
 
   async setTheme(theme: Theme): Promise<void> {
     applyTheme(theme);
+    cacheTheme(theme);
     this.settings = { ...this.settings, theme };
     await api.settings.patch({ theme });
   }

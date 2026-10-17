@@ -21,7 +21,10 @@ export const ChannelId = {
   VIDEO: 0,
   /** server→browser: same framing as VIDEO */
   AUDIO: 1,
-  /** browser→server: raw scrcpy control message (control_msg.h), forwarded verbatim */
+  /**
+   * browser→server: raw scrcpy control message (control_msg.h), forwarded verbatim. Frames sent
+   * before METADATA are queued (a few dozen) and flushed once the control socket is up.
+   */
   CONTROL: 2,
   /** server→browser: raw bytes from the device side of the control socket; browser reassembles */
   DEVICE_MSG: 3,
@@ -147,6 +150,9 @@ export type FilesRequest =
  * Text frames server → browser. For `pull`, data arrives as binary frames prefixed with the
  * u32 LE request id, then a `{done}` text frame. For `push`, the browser sends binary frames
  * prefixed with the u32 LE request id after `{ready}`, and ends with `{id, op:"push-end"}`.
+ * `progress.bytes` counts bytes the server has already written to the device, so it is an ack:
+ * the browser should cap the bytes it has sent but not yet seen acknowledged. After a failed
+ * or cancelled transfer the server reopens its `sync:` socket; the next request starts clean.
  */
 export type FilesResponse =
   | { id: number; type: "list"; entries: FileEntry[] }
