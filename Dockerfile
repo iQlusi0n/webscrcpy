@@ -14,7 +14,7 @@ FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends adb ca-certificates tini \
  && rm -rf /var/lib/apt/lists/* \
- && useradd -r -u 1000 -m -d /data -s /usr/sbin/nologin app
+ && groupadd -g 1000 app && useradd -r -u 1000 -g 1000 -m -d /data -s /usr/sbin/nologin app
 COPY --from=build /src/dist/webscrcpy /usr/local/bin/webscrcpy
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENV PORT=8000 \

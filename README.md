@@ -33,6 +33,9 @@ bun run check                    # biome lint + tsc + bun test
 | `ADB_SERVER` | `127.0.0.1:5037` | existing adb daemon (`host:port`); if unset and closed, the server runs `adb start-server` |
 | `ALLOWED_HOSTS` | — | comma-separated domain names accepted in the `Host` header (reverse proxy) |
 | `APP_DOCKER` | — | `1` inside the image |
+| `CONFIG` | `$DATA_ROOT/config.json` | path to the config file |
+| `DEBUG` | — | `1` enables debug-level log lines |
+| `SCRCPY_SERVER_PATH` | bundled 5.0 | override the pushed `scrcpy-server` jar (must be the same scrcpy version; unverified) |
 | `AUTH_PASSWORD` | — | sets the single login password (not changeable in the UI while set). Omit to set one in Settings, or to run without login behind an authenticating proxy. |
 
 `config.json` (`DATA_ROOT`) carries the same `port`, `allowedHosts`, `frameAncestors`. Env wins over file.
